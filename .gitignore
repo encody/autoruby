@@ -2,3 +2,4 @@
 /data/*.db3
 /data/*.txt
 /data/*.json
+.DS_Store
