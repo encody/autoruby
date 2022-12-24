@@ -89,6 +89,9 @@ fn dictionary_line(input: &str) -> IResult<&str, FuriganaEntry> {
 }
 
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=./data/furigana_dictionary.txt");
+
     let dictionary_file = fs::File::open(DICT_PATH).unwrap();
     let dictionary_reader = BufReader::new(dictionary_file);
 
