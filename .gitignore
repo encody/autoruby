@@ -1,5 +1,4 @@
 /target
-/data/*.db3
-/data/*.txt
-/data/*.json
+/data
+!/data/.gitkeep
 .DS_Store

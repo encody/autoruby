@@ -111,7 +111,7 @@ fn apply_rubies(format_string: &str, text: &str, rubies: &[Ruby]) -> String {
     s
 }
 
-pub fn generate_rubies(input: &str, format_string: &str) -> String {
+pub fn generate_rubies(format_string: &str, input: &str) -> String {
     let t = Tokenizer::with_config(TokenizerConfig {
         dictionary: lindera::tokenizer::DictionaryConfig {
             kind: Some(lindera::DictionaryKind::IPADIC),

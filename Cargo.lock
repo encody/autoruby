@@ -43,7 +43,6 @@ dependencies = [
  "nom",
  "rusqlite",
  "serde",
- "serde_json",
  "wana_kana",
 ]
 
