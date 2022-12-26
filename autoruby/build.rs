@@ -6,10 +6,10 @@ use std::{
 
 use rusqlite::Connection;
 
-const DB_PATH: &'static str = "./data/furi.db3";
-const DICT_PATH: &'static str = "./data/furigana_dictionary.txt";
+const DB_PATH: &str = "./data/furi.db3";
+const DICT_PATH: &str = "./data/furigana_dictionary.txt";
 #[cfg(feature = "dict-autodownload")]
-const DICT_URL: &'static str =
+const DICT_URL: &str =
     "https://github.com/Doublevil/JmdictFurigana/releases/latest/download/JmdictFurigana.txt";
 
 #[path = "./src/parse.rs"]
@@ -25,14 +25,10 @@ async fn main() {
     #[cfg(feature = "dict-autodownload")]
     let dictionary_file = {
         if let Ok(file) = fs::File::open(DICT_PATH) {
-            println!("found file");
             file
         } else {
-            println!("downloading");
             let dictionary_file = reqwest::get(DICT_URL).await.unwrap().bytes().await.unwrap();
-            println!("writing file");
             fs::write(DICT_PATH, &dictionary_file).unwrap();
-            println!("reading from file");
             fs::File::open(DICT_PATH).unwrap()
         }
     };
@@ -50,24 +46,24 @@ async fn main() {
 
     db.execute_batch(
         r#"--sql
-        create table if not exists text_entry (
-            id              integer primary key,
-            text            text not null,
-            reading         text not null,
-            unique(text, reading)
-        );
+            create table if not exists text_entry (
+                id              integer primary key,
+                text            text not null,
+                reading         text not null,
+                unique(text, reading)
+            );
 
-        create index if not exists idx_text_entry_text on text_entry(text);
+            create index if not exists idx_text_entry_text on text_entry(text);
 
-        create table if not exists ruby_entry (
-            id              integer primary key,
-            text_entry_id   integer not null,
-            start_index     byte not null,
-            end_index       byte not null,
-            rt              text not null,
-            foreign key(text_entry_id) references text_entry(id)
-        );
-    "#,
+            create table if not exists ruby_entry (
+                id              integer primary key,
+                text_entry_id   integer not null,
+                start_index     byte not null,
+                end_index       byte not null,
+                rt              text not null,
+                foreign key(text_entry_id) references text_entry(id)
+            );
+        "#,
     )
     .unwrap();
 
