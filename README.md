@@ -11,6 +11,9 @@ Currently planning to support:
 Maybe:
 
 - .DOCX
+- EPUB
+- MOBI
+- Google Docs (WASM + extension?)
 
 Not:
 
