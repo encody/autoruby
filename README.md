@@ -20,9 +20,9 @@ Not:
 
 The tool works using an embedded database of the Jmdict furigana as provided by [Doublevil](https://github.com/Doublevil/JmdictFurigana).
 
-To generate the database for yourself, first download the text file either manually from the above link, or by using the included `download-dictionary.sh` script.
+To generate the database for yourself, first download the text file either manually from the above link, or enable the `dict-bundled` or `dict-autodownload` features.
 
-Once you have the dictionary file, run the `build.rs` script to compile it into an SQLite database.
+Run the `autoruby/build.rs` script to compile the dictionary into an SQLite database. (It will run automatically, either by your IDE or when running `cargo build`.)
 
 ## Usage
 

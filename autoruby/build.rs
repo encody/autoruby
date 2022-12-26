@@ -1,89 +1,46 @@
 use std::{
     fs,
     io::{BufRead, BufReader},
-    num::ParseIntError,
     time::Instant,
 };
 
-const DB_PATH: &'static str = "./data/furi.db3";
-const DICT_PATH: &'static str = "./data/furigana_dictionary.txt";
-
-use nom::{
-    bytes::complete::{take_till1, take_until},
-    character::complete::{char, digit1},
-    combinator::{map, map_res, opt},
-    multi::separated_list0,
-    sequence::{preceded, separated_pair, tuple},
-    IResult,
-};
 use rusqlite::Connection;
 
-#[derive(Debug)]
-struct FuriganaEntry<'a> {
-    pub text: &'a str,
-    pub reading: &'a str,
-    pub rubies: Vec<RubyEntry<'a>>,
-}
+const DB_PATH: &'static str = "./data/furi.db3";
+const DICT_PATH: &'static str = "./data/furigana_dictionary.txt";
+#[cfg(feature = "dict-autodownload")]
+const DICT_URL: &'static str =
+    "https://github.com/Doublevil/JmdictFurigana/releases/latest/download/JmdictFurigana.txt";
 
-#[derive(Debug)]
-struct RubyEntry<'a> {
-    pub start_index: u8,
-    pub end_index: u8,
-    pub rt: &'a str,
-}
+#[path = "./src/parse.rs"]
+mod parse;
 
-fn take_range(input: &str) -> IResult<&str, (u8, u8)> {
-    map_res(
-        tuple((digit1, opt(preceded(char('-'), digit1)))),
-        |(start, end): (&str, Option<&str>)| {
-            let start: u8 = start.parse()?;
-            let end = if let Some(end) = end {
-                end.parse()?
-            } else {
-                start
-            };
-            Ok::<_, ParseIntError>((start, end))
-        },
-    )(input)
-}
+use parse::dictionary_line;
 
-fn take_ruby(input: &str) -> IResult<&str, RubyEntry> {
-    map(
-        separated_pair(take_range, char(':'), take_till1(|c| c == '\n' || c == ';')),
-        |((start_index, end_index), rt)| RubyEntry {
-            start_index,
-            end_index,
-            rt,
-        },
-    )(input)
-}
-
-fn take_rubies(input: &str) -> IResult<&str, Vec<RubyEntry>> {
-    separated_list0(char(';'), take_ruby)(input)
-}
-
-fn dictionary_line(input: &str) -> IResult<&str, FuriganaEntry> {
-    map(
-        tuple((
-            take_until("|"),
-            char('|'),
-            take_until("|"),
-            char('|'),
-            take_rubies,
-        )),
-        |(text, _, reading, _, rubies)| FuriganaEntry {
-            text,
-            reading,
-            rubies,
-        },
-    )(input)
-}
-
-fn main() {
+#[tokio::main]
+async fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={DICT_PATH}");
 
+    #[cfg(feature = "dict-autodownload")]
+    let dictionary_file = {
+        if let Ok(file) = fs::File::open(DICT_PATH) {
+            println!("found file");
+            file
+        } else {
+            println!("downloading");
+            let dictionary_file = reqwest::get(DICT_URL).await.unwrap().bytes().await.unwrap();
+            println!("writing file");
+            fs::write(DICT_PATH, &dictionary_file).unwrap();
+            println!("reading from file");
+            fs::File::open(DICT_PATH).unwrap()
+        }
+    };
+
+    #[cfg(not(any(feature = "dict-bundled", feature = "dict-autodownload")))]
     let dictionary_file = fs::File::open(DICT_PATH).unwrap();
+    #[cfg(feature = "dict-bundled")]
+    let dictionary_file = include_bytes!("../data/furigana_dictionary.txt") as &[u8];
 
     let dictionary_reader = BufReader::new(dictionary_file);
 
@@ -116,9 +73,6 @@ fn main() {
 
     println!("Writing records to database");
 
-    let mut start = Instant::now();
-    let mut range_start = 0;
-
     let mut insert_text_entry = db
         .prepare(
             r#"--sql
@@ -126,6 +80,9 @@ fn main() {
             "#,
         )
         .unwrap();
+
+    let mut start = Instant::now();
+    let mut range_start = 0;
 
     db.execute_batch("begin").unwrap();
 
