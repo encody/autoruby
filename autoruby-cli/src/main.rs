@@ -49,6 +49,6 @@ mod tests {
     #[test]
     fn test() {
         let processor = autoruby::text_processor::TextProcessor::new("../autoruby/data/furi.db3");
-        println!("{}", processor.generate_rubies(format::markdown, "<p>あの年代、人類が思い出した。「カタカナ言葉」って言っちゃったが、信じられなかった。淡水湖の世界最大を思い描いてほしい。どういう感じだろう？賑やかな魚か、[カヤック](https://kayak.com/)している家族たちか？または、もしかしたら汚くて藻でいっぱいの湖なのか？</p>"));
+        println!("{}", processor.generate_rubies(format::html, "神は「光あれ」と言われた。すると光があった。"));
     }
 }

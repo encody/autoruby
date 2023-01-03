@@ -6,9 +6,10 @@ name = "autoruby"
 version = "0.1.0"
 
 [features]
-default = []
-dict-autodownload = ["dep:reqwest"]
-dict-bundled = []
+default = ["dict-autobuild"]
+dict-autobuild = []
+dict-autobuild-bundled = []
+dict-autobuild-download = ["dep:reqwest"]
 
 [dependencies]
 lindera = {version = "0.19.0", features = ["ipadic"]}
