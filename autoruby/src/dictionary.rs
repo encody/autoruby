@@ -4,6 +4,12 @@ use rusqlite::Connection;
 
 use crate::parse::dictionary_line;
 
+#[cfg(feature = "dict-autobuild-download")]
+pub const DOWNLOAD_URL: &str =
+    "https://github.com/Doublevil/JmdictFurigana/releases/latest/download/JmdictFurigana.txt";
+#[cfg(feature = "dict-autobuild-bundled")]
+pub const BUNDLED: &[u8] = include_bytes!("./data/furigana_dictionary.txt");
+
 /// Transactions of how many dictionary entries worth of insertions at a time?
 const BATCH_SIZE: usize = 1000;
 

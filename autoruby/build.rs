@@ -4,11 +4,6 @@ use rusqlite::Connection;
 
 const DB_PATH: &str = "./data/furi.db3";
 const DICT_PATH: &str = "./data/furigana_dictionary.txt";
-#[cfg(feature = "dict-autobuild-download")]
-const DICT_URL: &str =
-    "https://github.com/Doublevil/JmdictFurigana/releases/latest/download/JmdictFurigana.txt";
-#[cfg(feature = "dict-autobuild-bundled")]
-const DICT_BUNDLED: &[u8] = include_bytes!("./data/furigana_dictionary.txt");
 
 #[path = "./src/dictionary.rs"]
 mod dictionary;
@@ -30,13 +25,13 @@ async fn main() {
         if let Ok(file) = std::fs::File::open(DICT_PATH) {
             file
         } else {
-            let dictionary_file = reqwest::get(DICT_URL).await.unwrap().bytes().await.unwrap();
+            let dictionary_file = reqwest::get(dictionary::DICT_URL).await.unwrap().bytes().await.unwrap();
             std::fs::write(DICT_PATH, &dictionary_file).unwrap();
             std::fs::File::open(DICT_PATH).unwrap()
         }
     };
     #[cfg(feature = "dict-autobuild-bundled")]
-    let dictionary_file = DICT_BUNDLED;
+    let dictionary_file = dictionary::DICT_BUNDLED;
     #[cfg(not(any(
         feature = "dict-autobuild-bundled",
         feature = "dict-autobuild-autodownload"

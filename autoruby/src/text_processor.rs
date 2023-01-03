@@ -1,4 +1,8 @@
-use std::path::Path;
+use std::{
+    borrow::{Borrow, Cow},
+    path::Path,
+    vec,
+};
 
 use lindera::tokenizer::{Tokenizer, TokenizerConfig};
 use rusqlite::Connection;
@@ -19,6 +23,19 @@ pub struct RubySpan {
     pub ruby_text: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Annotated<'a> {
+    text: Cow<'a, str>,
+    // TODO: Technically, it is possible for annotations to be empty. Is it better devex to do away with the enum and just use an empty annotations vector for text that we didn't even try to annotate?
+    annotations: Vec<RubySpan>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TextFragment<'a> {
+    Plain(Cow<'a, str>),
+    Annotated(Annotated<'a>),
+}
+
 impl TextProcessor {
     pub fn new(db_path: impl AsRef<Path>) -> Self {
         let tokenizer = Tokenizer::with_config(TokenizerConfig {
@@ -36,17 +53,19 @@ impl TextProcessor {
         Self { db, tokenizer }
     }
 
-    pub fn suggest_rubies(&self, text: &str) -> Vec<RubySpan> {
+    pub fn suggest_rubies_for_word(&self, text: &str) -> Vec<RubySpan> {
+        // TODO: Multiple readings for same text, e.g.
+        // 日本, 一分, etc. 
         let mut stmt = self
             .db
             .prepare(
                 r#"--sql
-            select start_index, end_index, rt
-            from text_entry
-            join ruby_entry on ruby_entry.text_entry_id = text_entry.id
-            where text = ?1
-            order by start_index asc, end_index desc -- longest options first
-        "#,
+                    select start_index, end_index, rt
+                    from text_entry
+                    join ruby_entry on ruby_entry.text_entry_id = text_entry.id
+                    where text = ?1
+                    order by start_index asc, end_index desc -- longest options first
+                "#,
             )
             .unwrap();
         stmt.query_map([text], |r| {
@@ -57,8 +76,44 @@ impl TextProcessor {
             })
         })
         .unwrap()
-        .map(|r| r.unwrap())
+        .filter_map(|r| r.ok())
         .collect::<Vec<_>>()
+    }
+
+    fn annotate_token<'a>(&self, token: lindera::Token<'a>) -> Annotated<'a> {
+        let dictionary_form = token.details.as_ref().and_then(|d| {
+            if let [_, _, _, _, _, _, dictionary_form, _reading, _pronunciation] = &d[..] {
+                Some(dictionary_form)
+            } else {
+                None
+            }
+        });
+
+        let annotations = dictionary_form
+            .map(|dictionary_form| self.suggest_rubies_for_word(dictionary_form))
+            .unwrap_or_default();
+
+        Annotated {
+            text: token.text,
+            annotations,
+        }
+    }
+
+    pub fn process<'a>(&self, input: &'a str) -> Vec<TextFragment<'a>> {
+        self.tokenizer
+            .tokenize_with_details(input)
+            .unwrap()
+            .into_iter()
+            .map(|t| {
+                let should_generate_rubies = t.text.as_ref().chars().any(IsJapaneseChar::is_kanji);
+
+                if should_generate_rubies {
+                    TextFragment::Annotated(self.annotate_token(t))
+                } else {
+                    TextFragment::Plain(t.text)
+                }
+            })
+            .collect()
     }
 
     pub fn generate_rubies(&self, f: FormatRuby, input: &str) -> String {
@@ -71,7 +126,7 @@ impl TextProcessor {
                 let details = token.details.unwrap();
                 if let [_, _, _, _, _, _, dictionary_form, _reading, _pronunciation] = &details[..]
                 {
-                    let suggestions = self.suggest_rubies(dictionary_form);
+                    let suggestions = self.suggest_rubies_for_word(dictionary_form);
                     let with_rubies = apply_suggested_rubies(f, &token.text, &suggestions);
                     output.push_str(&with_rubies);
                 } else {
