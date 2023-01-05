@@ -3,7 +3,7 @@ use std::{borrow::Cow, path::Path, vec};
 use lindera::tokenizer::{Tokenizer, TokenizerConfig};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use wana_kana::IsJapaneseChar;
+use wana_kana::{to_katakana::to_katakana, IsJapaneseChar};
 
 use crate::format::Format;
 
@@ -21,6 +21,7 @@ pub struct AnnotationSpan {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Annotation {
+    pub reading: String,
     pub spans: Vec<AnnotationSpan>,
 }
 
@@ -99,7 +100,7 @@ impl Annotator {
             .db
             .prepare(
                 r#"--sql
-                    select text_entry_id, start_index, end_index, rt
+                    select text_entry_id, reading, start_index, end_index, rt
                     from text_entry
                     join ruby_entry on text_entry.id = ruby_entry.text_entry_id
                     where text_entry.text = ?1
@@ -111,12 +112,14 @@ impl Annotator {
         let spans = query
             .query_map([text], |r| {
                 let text_entry_id: usize = r.get(0)?;
+                let reading: String = r.get(1)?;
                 Ok((
                     text_entry_id,
+                    reading,
                     AnnotationSpan {
-                        start_index: r.get(1)?,
-                        end_index: r.get(2)?,
-                        text: r.get(3)?,
+                        start_index: r.get(2)?,
+                        end_index: r.get(3)?,
+                        text: r.get(4)?,
                     },
                 ))
             })
@@ -126,9 +129,12 @@ impl Annotator {
 
         let mut annotations = vec![];
         let mut last_group_id = 0; // sqlite indices start at 1
-        for (group_id, span) in spans {
+        for (group_id, reading, span) in spans {
             if group_id != last_group_id {
-                annotations.push(Annotation { spans: vec![span] });
+                annotations.push(Annotation {
+                    reading,
+                    spans: vec![span],
+                });
                 last_group_id = group_id;
             } else {
                 annotations.last_mut().unwrap().spans.push(span);
@@ -139,16 +145,25 @@ impl Annotator {
     }
 
     fn annotate_token<'a>(&self, token: lindera::Token<'a>) -> AnnotatedTextFragment<'a> {
-        let dictionary_form = token.details.as_ref().and_then(|d| {
-            if let [_, _, _, _, _, _, dictionary_form, _reading, _pronunciation] = &d[..] {
-                Some(dictionary_form)
+        let details = token.details.as_ref().and_then(|d| {
+            if let [_, _, _, _, _, _, dictionary_form, reading_katakana, _pronunciation] = &d[..] {
+                Some((dictionary_form, reading_katakana))
             } else {
                 None
             }
         });
 
-        let annotations = dictionary_form
-            .map(|dictionary_form| self.find_annotations_for_text(dictionary_form))
+        let annotations = details
+            .map(|(dictionary_form, reading_katakana)| {
+                let (mut reading_matches, others) = self
+                    .find_annotations_for_text(dictionary_form)
+                    .into_iter()
+                    .partition::<Vec<_>, _>(|v| &to_katakana(&v.reading) == reading_katakana);
+
+                // reorder so the ones where the reading matches the analyzer's suggestion wins
+                reading_matches.extend(others);
+                reading_matches
+            })
             .unwrap_or_default();
 
         AnnotatedTextFragment {

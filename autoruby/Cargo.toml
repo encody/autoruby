@@ -18,6 +18,7 @@ serde = "1.0.151"
 wana_kana = "2.1.0"
 
 [build-dependencies]
+dotenvy = "0.15.6"
 nom = "7.1.1"
 reqwest = "0.11.13"
 rusqlite = {version = "0.28.0", features = ["bundled"]}
