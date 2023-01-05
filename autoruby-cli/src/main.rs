@@ -1,5 +1,6 @@
 use std::{
     fs,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -70,8 +71,11 @@ enum Command {
 
 #[derive(Args, Debug)]
 struct AnnotateArgs {
-    /// File to read input from
-    input_path: PathBuf,
+    /// File to read input from, otherwise STDIN
+    input_path: Option<PathBuf>,
+
+    /// File to write output to, otherwise STDOUT
+    output_path: Option<PathBuf>,
 
     /// Detect if the dictionary exists and download it if necessary
     #[arg(short, long)]
@@ -80,6 +84,26 @@ struct AnnotateArgs {
     /// Output mode
     #[arg(value_enum, long, short)]
     mode: OutputMode,
+}
+
+fn input(input_path: Option<impl AsRef<Path>>) -> String {
+    input_path
+        .map(|p| fs::read_to_string(p).expect("Could not read input file."))
+        .unwrap_or_else(|| {
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .expect("Must specify input file or STDIN.");
+            buf
+        })
+}
+
+fn output(output_path: Option<impl AsRef<Path>>) -> Box<dyn Write> {
+    output_path
+        .map(|o| {
+            Box::new(fs::File::create(o).expect("Could not create output file.")) as Box<dyn Write>
+        })
+        .unwrap_or_else(|| Box::new(std::io::stdout()) as Box<dyn Write>)
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
@@ -136,13 +160,15 @@ async fn main() {
                 }
             }
 
-            let input_text = fs::read_to_string(a.input_path).unwrap();
+            let input_text = input(a.input_path);
 
             let processor = autoruby::annotate::Annotator::new(&config.db_path);
 
             let generated = processor.annotate(a.mode.formatter(), &input_text);
 
-            println!("{}", generated);
+            output(a.output_path)
+                .write(generated.as_bytes())
+                .expect("Could not write output.");
         }
     }
 }
