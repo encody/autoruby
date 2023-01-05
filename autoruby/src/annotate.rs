@@ -7,7 +7,7 @@ use wana_kana::IsJapaneseChar;
 
 use crate::format::Format;
 
-pub struct TextProcessor {
+pub struct Annotator {
     db: Connection,
     tokenizer: Tokenizer,
 }
@@ -31,20 +31,20 @@ impl Annotation {
         let (last_index, mut s) =
             self.spans
                 .iter()
-                .fold((0, String::new()), |(valid_next_index, mut s), ruby| {
-                    if ruby.start_index >= valid_next_index {
+                .fold((0, String::new()), |(valid_next_index, mut s), span| {
+                    if span.start_index >= valid_next_index {
                         s.push_str(
-                            &text[valid_next_index..ruby.start_index]
+                            &text[valid_next_index..span.start_index]
                                 .iter()
                                 .collect::<String>(),
                         );
-                        let base = &text[ruby.start_index..=ruby.end_index]
+                        let base = &text[span.start_index..=span.end_index]
                             .iter()
                             .collect::<String>();
-                        let text = &ruby.text;
+                        let text = &span.text;
 
                         s.push_str(&format(base, text));
-                        (ruby.end_index + 1, s)
+                        (span.end_index + 1, s)
                     } else {
                         (valid_next_index, s)
                     }
@@ -73,7 +73,7 @@ pub struct AnnotatedText<'a> {
     pub fragments: Vec<TextFragment<'a>>,
 }
 
-impl TextProcessor {
+impl Annotator {
     pub fn new(db_path: impl AsRef<Path>) -> Self {
         let tokenizer = Tokenizer::with_config(TokenizerConfig {
             dictionary: lindera::tokenizer::DictionaryConfig {
@@ -95,7 +95,7 @@ impl TextProcessor {
         // this would be unnecessary if we used an ORM, I don't think this
         // project justifies the additional weight/complexity just for this
         // single function. ORMs are probably slower, too.
-        let mut stmt = self
+        let mut query = self
             .db
             .prepare(
                 r#"--sql
@@ -108,7 +108,7 @@ impl TextProcessor {
             )
             .unwrap();
 
-        let spans = stmt
+        let spans = query
             .query_map([text], |r| {
                 let text_entry_id: usize = r.get(0)?;
                 Ok((
@@ -164,9 +164,9 @@ impl TextProcessor {
             .unwrap()
             .into_iter()
             .map(|t| {
-                let should_generate_rubies = t.text.as_ref().chars().any(IsJapaneseChar::is_kanji);
+                let should_annotate = t.text.as_ref().chars().any(IsJapaneseChar::is_kanji);
 
-                if should_generate_rubies {
+                if should_annotate {
                     TextFragment::Annotated(self.annotate_token(t))
                 } else {
                     TextFragment::Plain(t.text)
@@ -177,7 +177,7 @@ impl TextProcessor {
         AnnotatedText { fragments }
     }
 
-    pub fn generate_rubies(&self, f: Format, input: &str) -> String {
+    pub fn annotate(&self, f: Format, input: &str) -> String {
         let t = self.generate_annotations(input);
         t.fragments
             .into_iter()

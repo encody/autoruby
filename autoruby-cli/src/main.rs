@@ -35,9 +35,9 @@ fn main() {
 
     let input_text = fs::read_to_string(args.input_path).unwrap();
 
-    let processor = autoruby::text_processor::TextProcessor::new("../autoruby/data/furi.db3");
+    let processor = autoruby::annotate::Annotator::new("../autoruby/data/annotations.db3");
 
-    let generated = processor.generate_rubies(args.mode.formatter(), &input_text);
+    let generated = processor.annotate(args.mode.formatter(), &input_text);
 
     println!("{}", generated);
 }
@@ -48,8 +48,8 @@ mod tests {
 
     #[test]
     fn test() {
-        let processor = autoruby::text_processor::TextProcessor::new("../autoruby/data/furi.db3");
-        let result = processor.generate_rubies(
+        let processor = autoruby::annotate::Annotator::new("../autoruby/data/annotations.db3");
+        let result = processor.annotate(
             format::markdown,
             "神は「光あれ」と言われた。すると光があった。",
         );
