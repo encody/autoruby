@@ -21,7 +21,7 @@ async fn main() {
             file
         } else {
             let dictionary_file = dictionary::download().await.unwrap();
-            std::fs::write(DICT_PATH, &dictionary_file).unwrap();
+            std::fs::write(DICT_PATH, dictionary_file).unwrap();
             std::fs::File::open(DICT_PATH).unwrap()
         }
     };
