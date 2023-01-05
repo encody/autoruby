@@ -1,16 +1,85 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
-use autoruby::format::{self, Format};
-use clap::{Parser, ValueEnum};
+use autoruby::{
+    dictionary,
+    format::{self, Format},
+};
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use serde::Deserialize;
+
+const DB_FILENAME: &str = "annotations.db3";
+const ENV_PREFIX: &str = "AUTORUBY_";
+
+#[derive(Deserialize, Debug)]
+struct Config {
+    #[serde(default = "default_data_dir")]
+    data_dir: PathBuf,
+    #[serde(default = "default_db_path")]
+    db_path: PathBuf,
+}
+
+fn project_dirs() -> Option<directories::ProjectDirs> {
+    directories::ProjectDirs::from("io", "GeekLaunch", "autoruby-cli")
+}
+
+fn default_data_dir() -> PathBuf {
+    let path = project_dirs()
+        .map(|p| p.cache_dir().to_path_buf())
+        .or_else(|| directories::BaseDirs::new().map(|c| c.cache_dir().to_path_buf()))
+        .unwrap();
+
+    path
+}
+
+fn default_db_path() -> PathBuf {
+    default_data_dir().join(DB_FILENAME)
+}
+
+async fn download_dictionary(db_path: impl AsRef<Path>) {
+    let dict_text = dictionary::download().await.unwrap();
+    dictionary::build(
+        dict_text.as_bytes(),
+        &rusqlite::Connection::open(db_path).unwrap(),
+    );
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version)]
 /// Command-line utility for adding ruby text to documents
-struct Args {
-    pub input_path: PathBuf,
+struct Arguments {
+    #[command(subcommand)]
+    command: Command,
+}
 
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Download dictionary from the Internet
+    DownloadDict,
+    /// Remove data directory
+    Clean {
+        /// Are you sure?
+        #[arg(short, long)]
+        yes: bool,
+    },
+    /// Annotate text
+    Annotate(AnnotateArgs),
+}
+
+#[derive(Args, Debug)]
+struct AnnotateArgs {
+    /// File to read input from
+    input_path: PathBuf,
+
+    /// Detect if the dictionary exists and download it if necessary
+    #[arg(short, long)]
+    auto_download: bool,
+
+    /// Output mode
     #[arg(value_enum, long, short)]
-    pub mode: OutputMode,
+    mode: OutputMode,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
@@ -30,16 +99,52 @@ impl OutputMode {
     }
 }
 
-fn main() {
-    let args = Args::parse();
+async fn download_dict_command(config: &Config) {
+    fs::create_dir_all(&config.data_dir).unwrap();
+    eprintln!("Downloading dictionary to {}...", config.db_path.display());
+    download_dictionary(&config.db_path).await;
+    eprintln!("Done downloading dictionary.");
+}
 
-    let input_text = fs::read_to_string(args.input_path).unwrap();
+#[tokio::main]
+async fn main() {
+    let args = Arguments::parse();
+    let config: Config = envy::prefixed(ENV_PREFIX).from_env().unwrap();
 
-    let processor = autoruby::annotate::Annotator::new("../autoruby/data/annotations.db3");
+    match args.command {
+        Command::DownloadDict => {
+            download_dict_command(&config).await;
+        }
+        Command::Clean { yes } => {
+            if yes {
+                eprintln!("Removing {}...", config.data_dir.display());
+                fs::remove_dir_all(config.data_dir).unwrap();
+                eprintln!("Done.");
+            } else {
+                eprintln!(
+                    "No action performed. Pass the --yes flag to remove {}.",
+                    config.data_dir.display()
+                );
+            }
+        }
+        Command::Annotate(a) => {
+            if !config.db_path.exists() {
+                if a.auto_download {
+                    download_dict_command(&config).await;
+                } else {
+                    panic!("Dictionary not found: {}. Run `autoruby download-dict` to automatically download the dictionary, or re-run this command with the --auto-download flag.", config.db_path.display());
+                }
+            }
 
-    let generated = processor.annotate(args.mode.formatter(), &input_text);
+            let input_text = fs::read_to_string(a.input_path).unwrap();
 
-    println!("{}", generated);
+            let processor = autoruby::annotate::Annotator::new(&config.db_path);
+
+            let generated = processor.annotate(a.mode.formatter(), &input_text);
+
+            println!("{}", generated);
+        }
+    }
 }
 
 #[cfg(test)]
