@@ -1,11 +1,10 @@
+#[cfg(feature = "dict-autodownload")]
 #[path = "./src/dictionary.rs"]
 mod dictionary;
 
+#[cfg(feature = "dict-autodownload")]
 #[path = "./src/parse.rs"]
 mod parse;
-
-#[cfg(not(feature = "dict-autodownload"))]
-fn main() {}
 
 #[cfg(feature = "dict-autodownload")]
 #[tokio::main]
@@ -32,3 +31,6 @@ async fn main() {
 
     dictionary::build(dictionary_reader, &db);
 }
+
+#[cfg(not(feature = "dict-autodownload"))]
+fn main() {}
