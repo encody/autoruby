@@ -1,15 +1,11 @@
-use std::{
-    borrow::{Borrow, Cow},
-    path::Path,
-    vec,
-};
+use std::{borrow::Cow, path::Path, vec};
 
 use lindera::tokenizer::{Tokenizer, TokenizerConfig};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use wana_kana::IsJapaneseChar;
 
-use crate::format::FormatRuby;
+use crate::format::Format;
 
 pub struct TextProcessor {
     db: Connection,
@@ -17,23 +13,64 @@ pub struct TextProcessor {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RubySpan {
+pub struct AnnotationSpan {
     pub start_index: usize,
     pub end_index: usize,
-    pub ruby_text: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Annotation {
+    pub spans: Vec<AnnotationSpan>,
+}
+
+impl Annotation {
+    fn apply(&self, text: &str, format: Format) -> String {
+        // assuming the rubies are already sorted
+        let text = text.chars().collect::<Vec<_>>();
+        let (last_index, mut s) =
+            self.spans
+                .iter()
+                .fold((0, String::new()), |(valid_next_index, mut s), ruby| {
+                    if ruby.start_index >= valid_next_index {
+                        s.push_str(
+                            &text[valid_next_index..ruby.start_index]
+                                .iter()
+                                .collect::<String>(),
+                        );
+                        let base = &text[ruby.start_index..=ruby.end_index]
+                            .iter()
+                            .collect::<String>();
+                        let text = &ruby.text;
+
+                        s.push_str(&format(base, text));
+                        (ruby.end_index + 1, s)
+                    } else {
+                        (valid_next_index, s)
+                    }
+                });
+
+        s.push_str(&text[last_index..].iter().collect::<String>());
+        s
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Annotated<'a> {
-    text: Cow<'a, str>,
+pub struct AnnotatedTextFragment<'a> {
+    pub text: Cow<'a, str>,
     // TODO: Technically, it is possible for annotations to be empty. Is it better devex to do away with the enum and just use an empty annotations vector for text that we didn't even try to annotate?
-    annotations: Vec<RubySpan>,
+    pub annotations: Vec<Annotation>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TextFragment<'a> {
     Plain(Cow<'a, str>),
-    Annotated(Annotated<'a>),
+    Annotated(AnnotatedTextFragment<'a>),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AnnotatedText<'a> {
+    pub fragments: Vec<TextFragment<'a>>,
 }
 
 impl TextProcessor {
@@ -53,34 +90,55 @@ impl TextProcessor {
         Self { db, tokenizer }
     }
 
-    pub fn suggest_rubies_for_word(&self, text: &str) -> Vec<RubySpan> {
-        // TODO: Multiple readings for same text, e.g.
-        // 日本, 一分, etc. 
+    pub fn find_annotations_for_text(&self, text: &str) -> Vec<Annotation> {
+        // This function is a little janky. Although calculating relations like
+        // this would be unnecessary if we used an ORM, I don't think this
+        // project justifies the additional weight/complexity just for this
+        // single function. ORMs are probably slower, too.
         let mut stmt = self
             .db
             .prepare(
                 r#"--sql
-                    select start_index, end_index, rt
+                    select text_entry_id, start_index, end_index, rt
                     from text_entry
-                    join ruby_entry on ruby_entry.text_entry_id = text_entry.id
-                    where text = ?1
-                    order by start_index asc, end_index desc -- longest options first
+                    join ruby_entry on text_entry.id = ruby_entry.text_entry_id
+                    where text_entry.text = ?1
+                    order by text_entry_id asc, end_index asc
                 "#,
             )
             .unwrap();
-        stmt.query_map([text], |r| {
-            Ok(RubySpan {
-                start_index: r.get(0)?,
-                end_index: r.get(1)?,
-                ruby_text: r.get(2)?,
+
+        let spans = stmt
+            .query_map([text], |r| {
+                let text_entry_id: usize = r.get(0)?;
+                Ok((
+                    text_entry_id,
+                    AnnotationSpan {
+                        start_index: r.get(1)?,
+                        end_index: r.get(2)?,
+                        text: r.get(3)?,
+                    },
+                ))
             })
-        })
-        .unwrap()
-        .filter_map(|r| r.ok())
-        .collect::<Vec<_>>()
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect::<Vec<_>>();
+
+        let mut annotations = vec![];
+        let mut last_group_id = 0; // sqlite indices start at 1
+        for (group_id, span) in spans {
+            if group_id != last_group_id {
+                annotations.push(Annotation { spans: vec![span] });
+                last_group_id = group_id;
+            } else {
+                annotations.last_mut().unwrap().spans.push(span);
+            }
+        }
+
+        annotations
     }
 
-    fn annotate_token<'a>(&self, token: lindera::Token<'a>) -> Annotated<'a> {
+    fn annotate_token<'a>(&self, token: lindera::Token<'a>) -> AnnotatedTextFragment<'a> {
         let dictionary_form = token.details.as_ref().and_then(|d| {
             if let [_, _, _, _, _, _, dictionary_form, _reading, _pronunciation] = &d[..] {
                 Some(dictionary_form)
@@ -90,17 +148,18 @@ impl TextProcessor {
         });
 
         let annotations = dictionary_form
-            .map(|dictionary_form| self.suggest_rubies_for_word(dictionary_form))
+            .map(|dictionary_form| self.find_annotations_for_text(dictionary_form))
             .unwrap_or_default();
 
-        Annotated {
+        AnnotatedTextFragment {
             text: token.text,
             annotations,
         }
     }
 
-    pub fn process<'a>(&self, input: &'a str) -> Vec<TextFragment<'a>> {
-        self.tokenizer
+    pub fn generate_annotations<'a>(&self, input: &'a str) -> AnnotatedText<'a> {
+        let fragments = self
+            .tokenizer
             .tokenize_with_details(input)
             .unwrap()
             .into_iter()
@@ -113,63 +172,21 @@ impl TextProcessor {
                     TextFragment::Plain(t.text)
                 }
             })
+            .collect();
+
+        AnnotatedText { fragments }
+    }
+
+    pub fn generate_rubies(&self, f: Format, input: &str) -> String {
+        let t = self.generate_annotations(input);
+        t.fragments
+            .into_iter()
+            .map(|frag| match frag {
+                TextFragment::Plain(s) => s,
+                TextFragment::Annotated(AnnotatedTextFragment { text, annotations }) => {
+                    annotations[0].apply(&text, f).into()
+                }
+            })
             .collect()
     }
-
-    pub fn generate_rubies(&self, f: FormatRuby, input: &str) -> String {
-        let res = self.tokenizer.tokenize_with_details(input).unwrap();
-
-        let mut output = String::new();
-
-        for token in res {
-            if token.text.as_ref().chars().any(IsJapaneseChar::is_kanji) {
-                let details = token.details.unwrap();
-                if let [_, _, _, _, _, _, dictionary_form, _reading, _pronunciation] = &details[..]
-                {
-                    let suggestions = self.suggest_rubies_for_word(dictionary_form);
-                    let with_rubies = apply_suggested_rubies(f, &token.text, &suggestions);
-                    output.push_str(&with_rubies);
-                } else {
-                    output.push_str(&token.text);
-                }
-            } else {
-                output.push_str(&token.text);
-            }
-        }
-
-        output
-    }
-}
-
-pub fn format_ruby_text(format_string: &str, base: &str, ruby_text: &str) -> String {
-    format_string.replace("%b", base).replace("%t", ruby_text)
-}
-
-fn apply_suggested_rubies(format: FormatRuby, text: &str, rubies: &[RubySpan]) -> String {
-    // assuming the rubies are already sorted
-    let text = text.chars().collect::<Vec<_>>();
-    let (last_index, mut s) =
-        rubies
-            .iter()
-            .fold((0, String::new()), |(valid_next_index, mut s), ruby| {
-                if ruby.start_index >= valid_next_index {
-                    s.push_str(
-                        &text[valid_next_index..ruby.start_index]
-                            .iter()
-                            .collect::<String>(),
-                    );
-                    let base = &text[ruby.start_index..=ruby.end_index]
-                        .iter()
-                        .collect::<String>();
-                    let text = &ruby.ruby_text;
-
-                    s.push_str(&format(base, text));
-                    (ruby.end_index + 1, s)
-                } else {
-                    (valid_next_index, s)
-                }
-            });
-
-    s.push_str(&text[last_index..].iter().collect::<String>());
-    s
 }

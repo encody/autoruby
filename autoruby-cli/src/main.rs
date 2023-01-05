@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf};
 
-use autoruby::format::{self, FormatRuby};
+use autoruby::format::{self, Format};
 use clap::{Parser, ValueEnum};
 
 #[derive(Parser, Debug)]
@@ -21,7 +21,7 @@ enum OutputMode {
 }
 
 impl OutputMode {
-    pub fn formatter(&self) -> FormatRuby {
+    pub fn formatter(&self) -> Format {
         match self {
             OutputMode::Markdown => format::markdown,
             OutputMode::Html => format::html,
@@ -49,6 +49,13 @@ mod tests {
     #[test]
     fn test() {
         let processor = autoruby::text_processor::TextProcessor::new("../autoruby/data/furi.db3");
-        println!("{}", processor.generate_rubies(format::html, "神は「光あれ」と言われた。すると光があった。"));
+        let result = processor.generate_rubies(
+            format::markdown,
+            "神は「光あれ」と言われた。すると光があった。",
+        );
+        assert_eq!(
+            result,
+            "[神]{かみ}は「[光]{ひかり}あれ」と[言]{い}われた。すると[光]{ひかり}があった。"
+        );
     }
 }

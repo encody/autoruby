@@ -1,4 +1,4 @@
-pub type FormatRuby = fn(&str, &str) -> String;
+pub type Format = fn(&str, &str) -> String;
 
 pub fn markdown(base: &str, text: &str) -> String {
     format!("[{base}]{{{text}}}")
