@@ -10,6 +10,7 @@ use crate::format::Format;
 pub struct Annotator {
     db: Connection,
     tokenizer: Tokenizer,
+    avoid_common: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,16 +58,18 @@ impl Annotation {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AnnotatedTextFragment<'a> {
+pub struct TextFragment<'a> {
     pub text: Cow<'a, str>,
-    // TODO: Technically, it is possible for annotations to be empty. Is it better devex to do away with the enum and just use an empty annotations vector for text that we didn't even try to annotate?
     pub annotations: Vec<Annotation>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum TextFragment<'a> {
-    Plain(Cow<'a, str>),
-    Annotated(AnnotatedTextFragment<'a>),
+impl<'a> TextFragment<'a> {
+    pub fn plain(text: Cow<'a, str>) -> Self {
+        Self {
+            text,
+            annotations: vec![],
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -75,7 +78,7 @@ pub struct AnnotatedText<'a> {
 }
 
 impl Annotator {
-    pub fn new(db_path: impl AsRef<Path>) -> Self {
+    pub fn new(db_path: impl AsRef<Path>, avoid_common: bool) -> Self {
         let tokenizer = Tokenizer::with_config(TokenizerConfig {
             dictionary: lindera::tokenizer::DictionaryConfig {
                 kind: Some(lindera::DictionaryKind::IPADIC),
@@ -88,10 +91,14 @@ impl Annotator {
 
         let db = Connection::open(db_path).unwrap();
 
-        Self { db, tokenizer }
+        Self {
+            db,
+            tokenizer,
+            avoid_common,
+        }
     }
 
-    pub fn find_annotations_for_text(&self, text: &str) -> Vec<Annotation> {
+    pub fn find_annotations_for(&self, text: &str) -> Vec<Annotation> {
         // This function is a little janky. Although calculating relations like
         // this would be unnecessary if we used an ORM, I don't think this
         // project justifies the additional weight/complexity just for this
@@ -144,8 +151,10 @@ impl Annotator {
         annotations
     }
 
-    fn annotate_token<'a>(&self, token: lindera::Token<'a>) -> AnnotatedTextFragment<'a> {
-        let details = token.details.as_ref().and_then(|d| {
+    fn annotate_token<'a>(&self, token: lindera::Token<'a>) -> TextFragment<'a> {
+        println!("{}", token.text);
+
+        let mut details = token.details.as_ref().and_then(|d| {
             if let [_, _, _, _, _, _, dictionary_form, reading_katakana, _pronunciation] = &d[..] {
                 Some((dictionary_form, reading_katakana))
             } else {
@@ -153,10 +162,16 @@ impl Annotator {
             }
         });
 
+        if self.avoid_common {
+            details = details.filter(|(dictionary_form, _)| !self.is_kanji_common(dictionary_form));
+        }
+
+        let details = details;
+
         let annotations = details
             .map(|(dictionary_form, reading_katakana)| {
                 let (mut reading_matches, others) = self
-                    .find_annotations_for_text(dictionary_form)
+                    .find_annotations_for(dictionary_form)
                     .into_iter()
                     .partition::<Vec<_>, _>(|v| &to_katakana(&v.reading) == reading_katakana);
 
@@ -166,10 +181,23 @@ impl Annotator {
             })
             .unwrap_or_default();
 
-        AnnotatedTextFragment {
+        TextFragment {
             text: token.text,
             annotations,
         }
+    }
+
+    fn is_kanji_common(&self, input: &str) -> bool {
+        let mut query = self
+            .db
+            .prepare(
+                r#"--sql
+                    select text_common from text_entry where text = ?1
+                "#,
+            )
+            .unwrap();
+
+        query.query_row([input], |r| r.get::<_, bool>(0)).unwrap()
     }
 
     pub fn generate_annotations<'a>(&self, input: &'a str) -> AnnotatedText<'a> {
@@ -179,12 +207,12 @@ impl Annotator {
             .unwrap()
             .into_iter()
             .map(|t| {
-                let should_annotate = t.text.as_ref().chars().any(IsJapaneseChar::is_kanji);
+                let contains_kanji = t.text.as_ref().chars().any(IsJapaneseChar::is_kanji);
 
-                if should_annotate {
-                    TextFragment::Annotated(self.annotate_token(t))
+                if contains_kanji {
+                    self.annotate_token(t)
                 } else {
-                    TextFragment::Plain(t.text)
+                    TextFragment::plain(t.text)
                 }
             })
             .collect();
@@ -196,11 +224,9 @@ impl Annotator {
         let t = self.generate_annotations(input);
         t.fragments
             .into_iter()
-            .map(|frag| match frag {
-                TextFragment::Plain(s) => s,
-                TextFragment::Annotated(AnnotatedTextFragment { text, annotations }) => {
-                    annotations[0].apply(&text, f).into()
-                }
+            .map(|frag| match frag.annotations.first() {
+                Some(a) => a.apply(&frag.text, f).into(),
+                None => frag.text,
             })
             .collect()
     }

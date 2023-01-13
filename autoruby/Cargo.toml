@@ -6,10 +6,12 @@ name = "autoruby"
 version = "0.1.0"
 
 [features]
-default = []
+default = ["frequency-full", "dict-autodownload"]
 dict-autodownload = []
+frequency-full = ["jmdict/full"]
 
 [dependencies]
+jmdict = "2.0.0"
 lindera = {version = "0.19.0", features = ["ipadic"]}
 nom = "7.1.1"
 reqwest = "0.11.13"
@@ -19,6 +21,7 @@ wana_kana = "2.1.0"
 
 [build-dependencies]
 dotenvy = "0.15.6"
+jmdict = "2.0.0"
 nom = "7.1.1"
 reqwest = "0.11.13"
 rusqlite = {version = "0.28.0", features = ["bundled"]}

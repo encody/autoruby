@@ -162,7 +162,7 @@ async fn main() {
 
             let input_text = input(a.input_path);
 
-            let processor = autoruby::annotate::Annotator::new(&config.db_path);
+            let processor = autoruby::annotate::Annotator::new(&config.db_path, true);
 
             let generated = processor.annotate(a.mode.formatter(), &input_text);
 
@@ -178,8 +178,8 @@ mod tests {
     use autoruby::format;
 
     #[test]
-    fn test() {
-        let processor = autoruby::annotate::Annotator::new("../autoruby/data/annotations.db3");
+    fn test_simple() {
+        let processor = autoruby::annotate::Annotator::new("../autoruby/data/annotations.db3", false);
         let result = processor.annotate(
             format::markdown,
             "神は「光あれ」と言われた。すると光があった。",
@@ -188,5 +188,19 @@ mod tests {
             result,
             "[神]{かみ}は「[光]{ひかり}あれ」と[言]{い}われた。すると[光]{ひかり}があった。"
         );
+    }
+
+    #[test]
+    fn test_complex() {
+        let processor = autoruby::annotate::Annotator::new("../autoruby/data/annotations.db3", true);
+        let result = processor.annotate(
+            format::markdown,
+            "数学において、全単射あるいは双射とは、写像であって、その写像の終域となる集合の任意の元に対し、その元を写像の像とする元が、写像の定義域となる集合に常にただ一つだけ存在するようなもの、すなわち単射かつ全射であるような写像のことを言う。",
+        );
+        println!("{result}");
+        // assert_eq!(
+        //     result,
+        //     "[神]{かみ}は「[光]{ひかり}あれ」と[言]{い}われた。すると[光]{ひかり}があった。"
+        // );
     }
 }
