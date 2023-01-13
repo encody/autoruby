@@ -1,16 +1,18 @@
 #[cfg(feature = "dict-autodownload")]
+#[path = "./src/dictionary.rs"]
+mod dictionary;
+
+#[cfg(feature = "dict-autodownload")]
+#[path = "./src/parse.rs"]
+mod parse;
+
+#[cfg(feature = "dict-autodownload")]
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().ok();
+
     const DEFAULT_DB_PATH: &str = "./data/annotations.db3";
     const DEFAULT_DICT_PATH: &str = "./data/dictionary.txt";
-
-    #[path = "./src/dictionary.rs"]
-    mod dictionary;
-
-    #[path = "./src/parse.rs"]
-    mod parse;
-
-    dotenvy::dotenv().ok();
 
     let db_path = &std::env::var("AUTORUBY_DB_PATH")
         .ok()
