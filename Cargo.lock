@@ -63,6 +63,7 @@ dependencies = [
  "reqwest",
  "rusqlite",
  "serde",
+ "thiserror",
  "tokio",
  "wana_kana",
 ]

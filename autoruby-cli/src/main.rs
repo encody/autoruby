@@ -79,6 +79,10 @@ struct AnnotateArgs {
     #[arg(short, long)]
     auto_download: bool,
 
+    /// Include common kanji readings.
+    #[arg(short = 'c', long)]
+    include_common: bool,
+
     /// Output mode
     #[arg(value_enum, long, short)]
     mode: OutputMode,
@@ -160,7 +164,7 @@ async fn main() {
 
             let input_text = input(a.input_path);
 
-            let processor = autoruby::annotate::Annotator::new(&config.db_path, true);
+            let processor = autoruby::annotate::Annotator::new(&config.db_path, !a.include_common);
 
             let generated = processor.annotate(a.mode.formatter(), &input_text);
 

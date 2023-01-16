@@ -3,6 +3,7 @@ use std::{borrow::Cow, path::Path, vec};
 use lindera::tokenizer::{Tokenizer, TokenizerConfig};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use wana_kana::ConvertJapanese;
 
 use crate::format::Format;
@@ -84,10 +85,22 @@ pub struct AnnotatedText<'a> {
     pub fragments: Vec<TextFragment<'a>>,
 }
 
+#[derive(Clone, Debug)]
 struct InternalToken<'a> {
     pub original_text: Cow<'a, str>,
     pub lookup_text: String,
     pub reading_hint: Option<String>,
+}
+
+impl<'a> From<Cow<'a, str>> for InternalToken<'a> {
+    fn from(text: Cow<'a, str>) -> Self {
+        let lookup_text = text.to_string();
+        Self {
+            original_text: text,
+            lookup_text,
+            reading_hint: None,
+        }
+    }
 }
 
 impl<'a> From<String> for InternalToken<'a> {
@@ -101,11 +114,28 @@ impl<'a> From<String> for InternalToken<'a> {
     }
 }
 
+#[derive(Debug, Clone, Error)]
+enum TokenError {
+    #[error("Missing details on token \"{token_text}\"")]
+    MissingDetails { token_text: String },
+    #[error("Unknown details format on token \"{token_text}\": {details:?}")]
+    UnknownDetails {
+        token_text: String,
+        details: Vec<String>,
+    },
+}
+
 impl<'a> TryFrom<&'_ lindera::Token<'a>> for InternalToken<'a> {
-    type Error = ();
+    type Error = TokenError;
 
     fn try_from(token: &'_ lindera::Token<'a>) -> Result<Self, Self::Error> {
-        let details = &token.details.as_ref().ok_or(())?[..];
+        let details = &token
+            .details
+            .as_ref()
+            .ok_or_else(|| TokenError::MissingDetails {
+                token_text: token.text.to_string(),
+            })?[..];
+
         if let [_, _, _, _, _, _, dictionary_form, reading_katakana, _pronunciation] = details {
             Ok(Self {
                 original_text: token.text.clone(),
@@ -113,7 +143,10 @@ impl<'a> TryFrom<&'_ lindera::Token<'a>> for InternalToken<'a> {
                 reading_hint: Some(reading_katakana.to_hiragana()),
             })
         } else {
-            Err(())
+            Err(TokenError::UnknownDetails {
+                token_text: token.text.to_string(),
+                details: details.to_vec(),
+            })
         }
     }
 }
@@ -128,9 +161,14 @@ impl Annotator {
             user_dictionary: None,
             mode: lindera::mode::Mode::Normal,
         })
-        .unwrap();
+        .expect("Failed to initialize tokenizer");
 
-        let db = Connection::open(db_path).unwrap();
+        let db = Connection::open(&db_path).unwrap_or_else(|e| {
+            panic!(
+                "Failed to connect to database at {}: {e}",
+                &db_path.as_ref().display(),
+            )
+        });
 
         Self {
             db,
@@ -247,7 +285,7 @@ impl Annotator {
         query
             .query_map([input_escaped], |r| r.get::<_, String>(0))
             .unwrap()
-            .map(|a| a.unwrap())
+            .filter_map(|a| a.ok())
             .collect()
     }
 
@@ -289,7 +327,8 @@ impl Annotator {
                 }
 
                 if end <= token_buffer_start + 1 {
-                    pieces.push((&tokens[token_buffer_start]).try_into().unwrap());
+                    let t = &tokens[token_buffer_start];
+                    pieces.push(t.try_into().unwrap_or_else(|_| t.text.clone().into()));
                     token_buffer_start += 1;
                 } else {
                     let substring = tokens[token_buffer_start..end]
