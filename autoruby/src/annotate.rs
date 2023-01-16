@@ -271,7 +271,8 @@ impl Annotator {
 
             if buffer_possibilities
                 .iter()
-                .any(|p| p.starts_with(&current_substring)) {
+                .any(|p| p.starts_with(&current_substring))
+            {
                 // good, continue
                 token_buffer_end += 1;
             } else {
