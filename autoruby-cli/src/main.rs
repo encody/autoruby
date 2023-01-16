@@ -27,12 +27,10 @@ fn project_dirs() -> Option<directories::ProjectDirs> {
 }
 
 fn default_data_dir() -> PathBuf {
-    let path = project_dirs()
+    project_dirs()
         .map(|p| p.cache_dir().to_path_buf())
         .or_else(|| directories::BaseDirs::new().map(|c| c.cache_dir().to_path_buf()))
-        .unwrap();
-
-    path
+        .unwrap()
 }
 
 fn default_db_path() -> PathBuf {
@@ -167,7 +165,7 @@ async fn main() {
             let generated = processor.annotate(a.mode.formatter(), &input_text);
 
             output(a.output_path)
-                .write(generated.as_bytes())
+                .write_all(generated.as_bytes())
                 .expect("Could not write output.");
         }
     }

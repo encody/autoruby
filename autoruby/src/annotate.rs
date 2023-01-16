@@ -193,10 +193,8 @@ impl Annotator {
     }
 
     fn annotate_token<'a>(&self, token: InternalToken<'a>) -> TextFragment<'a> {
-        if self.avoid_common {
-            if self.is_kanji_common(&token.lookup_text) {
-                return TextFragment::plain(token.lookup_text.into());
-            }
+        if self.avoid_common && self.is_kanji_common(&token.lookup_text) {
+            return TextFragment::plain(token.lookup_text.into());
         }
 
         let reading_hint = token.reading_hint.as_ref();
@@ -215,7 +213,7 @@ impl Annotator {
         );
 
         TextFragment {
-            text: token.original_text.into(),
+            text: token.original_text,
             annotations,
         }
     }
