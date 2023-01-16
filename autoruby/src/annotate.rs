@@ -3,9 +3,16 @@ use std::{borrow::Cow, path::Path, vec};
 use lindera::tokenizer::{Tokenizer, TokenizerConfig};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use wana_kana::{to_katakana::to_katakana, IsJapaneseChar};
+use wana_kana::ConvertJapanese;
 
 use crate::format::Format;
+
+fn escape_like(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
 
 pub struct Annotator {
     db: Connection,
@@ -75,6 +82,40 @@ impl<'a> TextFragment<'a> {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AnnotatedText<'a> {
     pub fragments: Vec<TextFragment<'a>>,
+}
+
+struct InternalToken<'a> {
+    pub original_text: Cow<'a, str>,
+    pub lookup_text: String,
+    pub reading_hint: Option<String>,
+}
+
+impl<'a> From<String> for InternalToken<'a> {
+    fn from(text: String) -> Self {
+        let lookup_text = text.clone();
+        Self {
+            original_text: text.into(),
+            lookup_text,
+            reading_hint: None,
+        }
+    }
+}
+
+impl<'a> TryFrom<&'_ lindera::Token<'a>> for InternalToken<'a> {
+    type Error = ();
+
+    fn try_from(token: &'_ lindera::Token<'a>) -> Result<Self, Self::Error> {
+        let details = &token.details.as_ref().ok_or(())?[..];
+        if let [_, _, _, _, _, _, dictionary_form, reading_katakana, _pronunciation] = details {
+            Ok(Self {
+                original_text: token.text.clone(),
+                lookup_text: dictionary_form.clone(),
+                reading_hint: Some(reading_katakana.to_hiragana()),
+            })
+        } else {
+            Err(())
+        }
+    }
 }
 
 impl Annotator {
@@ -151,38 +192,30 @@ impl Annotator {
         annotations
     }
 
-    fn annotate_token<'a>(&self, token: lindera::Token<'a>) -> TextFragment<'a> {
-        println!("{}", token.text);
-
-        let mut details = token.details.as_ref().and_then(|d| {
-            if let [_, _, _, _, _, _, dictionary_form, reading_katakana, _pronunciation] = &d[..] {
-                Some((dictionary_form, reading_katakana))
-            } else {
-                None
-            }
-        });
-
+    fn annotate_token<'a>(&self, token: InternalToken<'a>) -> TextFragment<'a> {
         if self.avoid_common {
-            details = details.filter(|(dictionary_form, _)| !self.is_kanji_common(dictionary_form));
+            if self.is_kanji_common(&token.lookup_text) {
+                return TextFragment::plain(token.lookup_text.into());
+            }
         }
 
-        let details = details;
+        let reading_hint = token.reading_hint.as_ref();
 
-        let annotations = details
-            .map(|(dictionary_form, reading_katakana)| {
+        let annotations = reading_hint.map_or_else(
+            || self.find_annotations_for(&token.lookup_text),
+            |reading_hint| {
                 let (mut reading_matches, others) = self
-                    .find_annotations_for(dictionary_form)
+                    .find_annotations_for(&token.lookup_text)
                     .into_iter()
-                    .partition::<Vec<_>, _>(|v| &to_katakana(&v.reading) == reading_katakana);
+                    .partition::<Vec<_>, _>(|v| &v.reading == reading_hint);
 
-                // reorder so the ones where the reading matches the analyzer's suggestion wins
                 reading_matches.extend(others);
                 reading_matches
-            })
-            .unwrap_or_default();
+            },
+        );
 
         TextFragment {
-            text: token.text,
+            text: token.original_text.into(),
             annotations,
         }
     }
@@ -197,27 +230,93 @@ impl Annotator {
             )
             .unwrap();
 
-        query.query_row([input], |r| r.get::<_, bool>(0)).unwrap()
+        query
+            .query_row([input], |r| r.get::<_, bool>(0))
+            .unwrap_or_default()
+    }
+
+    fn db_prefixed(&self, input: &str) -> Vec<String> {
+        let input_escaped = escape_like(input);
+        let mut query = self
+            .db
+            .prepare(
+                r#"--sql
+                    select text from text_entry where text like ?1 || '%' escape '\'
+                "#,
+            )
+            .unwrap();
+
+        query
+            .query_map([input_escaped], |r| r.get::<_, String>(0))
+            .unwrap()
+            .map(|a| a.unwrap())
+            .collect()
     }
 
     pub fn generate_annotations<'a>(&self, input: &'a str) -> AnnotatedText<'a> {
-        let fragments = self
-            .tokenizer
-            .tokenize_with_details(input)
-            .unwrap()
-            .into_iter()
-            .map(|t| {
-                let contains_kanji = t.text.as_ref().chars().any(IsJapaneseChar::is_kanji);
+        let tokens = self.tokenizer.tokenize_with_details(input).unwrap();
 
-                if contains_kanji {
-                    self.annotate_token(t)
-                } else {
-                    TextFragment::plain(t.text)
+        // tokens must have at least one element
+
+        let mut pieces: Vec<InternalToken<'a>> = vec![];
+        let mut token_buffer_start: usize = 0;
+        let mut token_buffer_end: usize = 1;
+        let mut buffer_possibilities: Vec<String> = self.db_prefixed(&tokens[0].text);
+
+        while token_buffer_end <= tokens.len() {
+            let current_substring = tokens[token_buffer_start..token_buffer_end]
+                .iter()
+                .map(|t| t.text.as_ref())
+                .collect::<String>();
+
+            if buffer_possibilities
+                .iter()
+                .any(|p| p.starts_with(&current_substring)) {
+                // good, continue
+                token_buffer_end += 1;
+            } else {
+                // if not, find a possibility that does work with shorter substring
+                let mut end = token_buffer_end - 1;
+                while end > token_buffer_start {
+                    let substring = tokens[token_buffer_start..end]
+                        .iter()
+                        .map(|t| t.text.as_ref())
+                        .collect::<String>();
+
+                    if buffer_possibilities.contains(&substring) {
+                        break;
+                    }
+                    end -= 1;
                 }
-            })
-            .collect();
 
-        AnnotatedText { fragments }
+                if end <= token_buffer_start + 1 {
+                    pieces.push((&tokens[token_buffer_start]).try_into().unwrap());
+                    token_buffer_start += 1;
+                } else {
+                    let substring = tokens[token_buffer_start..end]
+                        .iter()
+                        .map(|t| t.text.as_ref())
+                        .collect::<String>();
+                    pieces.push(substring.into());
+                    token_buffer_start = end;
+                }
+
+                token_buffer_end = token_buffer_start + 1;
+
+                if let Some(t) = tokens.get(token_buffer_start) {
+                    buffer_possibilities = self.db_prefixed(&t.text);
+                }
+            }
+        }
+
+        // probably need to do something with the leftovers
+
+        AnnotatedText {
+            fragments: pieces
+                .into_iter()
+                .map(|token| self.annotate_token(token))
+                .collect(),
+        }
     }
 
     pub fn annotate(&self, f: Format, input: &str) -> String {
