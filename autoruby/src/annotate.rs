@@ -80,7 +80,7 @@ impl<'a> TextFragment<'a> {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct AnnotatedText<'a> {
     pub fragments: Vec<TextFragment<'a>>,
 }
@@ -290,6 +290,10 @@ impl Annotator {
     }
 
     pub fn generate_annotations<'a>(&self, input: &'a str) -> AnnotatedText<'a> {
+        if input.trim().len() == 0 {
+            return Default::default();
+        }
+
         let tokens = self.tokenizer.tokenize_with_details(input).unwrap();
 
         // tokens must have at least one element
@@ -357,7 +361,7 @@ impl Annotator {
         }
     }
 
-    pub fn annotate(&self, f: Format, input: &str) -> String {
+    pub fn annotate_with_first(&self, f: Format, input: &str) -> String {
         let t = self.generate_annotations(input);
         t.fragments
             .into_iter()

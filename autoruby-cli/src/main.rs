@@ -166,7 +166,7 @@ async fn main() {
 
             let processor = autoruby::annotate::Annotator::new(&config.db_path, !a.include_common);
 
-            let generated = processor.annotate(a.mode.formatter(), &input_text);
+            let generated = processor.annotate_with_first(a.mode.formatter(), &input_text);
 
             output(a.output_path)
                 .write_all(generated.as_bytes())
@@ -183,7 +183,7 @@ mod tests {
     fn test_complex_short() {
         let processor =
             autoruby::annotate::Annotator::new("../autoruby/data/annotations.db3", true);
-        let result = processor.annotate(format::markdown, "全単射。");
+        let result = processor.annotate_with_first(format::markdown, "全単射。");
         assert_eq!(result, "[全]{ぜん}[単]{たん}[射]{しゃ}。",);
     }
 
@@ -191,7 +191,7 @@ mod tests {
     fn test_simple() {
         let processor =
             autoruby::annotate::Annotator::new("../autoruby/data/annotations.db3", false);
-        let result = processor.annotate(
+        let result = processor.annotate_with_first(
             format::markdown,
             "神は「光あれ」と言われた。すると光があった。",
         );
@@ -205,7 +205,7 @@ mod tests {
     fn test_complex_long() {
         let processor =
             autoruby::annotate::Annotator::new("../autoruby/data/annotations.db3", true);
-        let result = processor.annotate(
+        let result = processor.annotate_with_first(
             format::markdown,
             "数学において、全単射あるいは双射とは、写像であって、その写像の終域となる集合の任意の元に対し、その元を写像の像とする元が、写像の定義域となる集合に常にただ一つだけ存在するようなもの、すなわち単射かつ全射であるような写像のことを言う。",
         );
