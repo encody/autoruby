@@ -8,7 +8,7 @@ use wana_kana::ConvertJapanese;
 
 use crate::format::Format;
 
-fn escape_like(input: &str) -> String {
+fn escape_sql_like(input: &str) -> String {
     input
         .replace('\\', "\\\\")
         .replace('%', "\\%")
@@ -66,12 +66,12 @@ impl Annotation {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TextFragment<'a> {
+pub struct AnnotatedTextFragment<'a> {
     pub text: Cow<'a, str>,
     pub annotations: Vec<Annotation>,
 }
 
-impl<'a> TextFragment<'a> {
+impl<'a> AnnotatedTextFragment<'a> {
     pub fn plain(text: Cow<'a, str>) -> Self {
         Self {
             text,
@@ -82,7 +82,7 @@ impl<'a> TextFragment<'a> {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct AnnotatedText<'a> {
-    pub fragments: Vec<TextFragment<'a>>,
+    pub fragments: Vec<AnnotatedTextFragment<'a>>,
 }
 
 #[derive(Clone, Debug)]
@@ -177,7 +177,7 @@ impl Annotator {
         }
     }
 
-    pub fn find_annotations_for(&self, text: &str) -> Vec<Annotation> {
+    pub fn find_annotations_for_word(&self, word: &str) -> Vec<Annotation> {
         // This function is a little janky. Although calculating relations like
         // this would be unnecessary if we used an ORM, I don't think this
         // project justifies the additional weight/complexity just for this
@@ -196,7 +196,7 @@ impl Annotator {
             .unwrap();
 
         let spans = query
-            .query_map([text], |r| {
+            .query_map([word], |r| {
                 let text_entry_id: usize = r.get(0)?;
                 let reading: String = r.get(1)?;
                 Ok((
@@ -230,18 +230,18 @@ impl Annotator {
         annotations
     }
 
-    fn annotate_token<'a>(&self, token: InternalToken<'a>) -> TextFragment<'a> {
+    fn annotate_internal_token<'a>(&self, token: InternalToken<'a>) -> AnnotatedTextFragment<'a> {
         if self.avoid_common && self.is_kanji_common(&token.lookup_text) {
-            return TextFragment::plain(token.lookup_text.into());
+            return AnnotatedTextFragment::plain(token.lookup_text.into());
         }
 
         let reading_hint = token.reading_hint.as_ref();
 
         let annotations = reading_hint.map_or_else(
-            || self.find_annotations_for(&token.lookup_text),
+            || self.find_annotations_for_word(&token.lookup_text),
             |reading_hint| {
                 let (mut reading_matches, others) = self
-                    .find_annotations_for(&token.lookup_text)
+                    .find_annotations_for_word(&token.lookup_text)
                     .into_iter()
                     .partition::<Vec<_>, _>(|v| &v.reading == reading_hint);
 
@@ -250,7 +250,7 @@ impl Annotator {
             },
         );
 
-        TextFragment {
+        AnnotatedTextFragment {
             text: token.original_text,
             annotations,
         }
@@ -271,8 +271,8 @@ impl Annotator {
             .unwrap_or_default()
     }
 
-    fn db_prefixed(&self, input: &str) -> Vec<String> {
-        let input_escaped = escape_like(input);
+    fn query_text_entries_starting_with(&self, prefix: &str) -> Vec<String> {
+        let prefix_escaped = escape_sql_like(prefix);
         let mut query = self
             .db
             .prepare(
@@ -283,43 +283,49 @@ impl Annotator {
             .unwrap();
 
         query
-            .query_map([input_escaped], |r| r.get::<_, String>(0))
+            .query_map([prefix_escaped], |r| r.get::<_, String>(0))
             .unwrap()
             .filter_map(|a| a.ok())
             .collect()
     }
 
-    pub fn generate_annotations<'a>(&self, input: &'a str) -> AnnotatedText<'a> {
-        if input.trim().len() == 0 {
+    pub fn annotate<'a>(&self, text: &'a str) -> AnnotatedText<'a> {
+        if text.trim().len() == 0 {
             return Default::default();
         }
 
-        let tokens = self.tokenizer.tokenize_with_details(input).unwrap();
+        let tokens = self.tokenizer.tokenize_with_details(text).unwrap();
 
         // tokens must have at least one element
 
-        let mut pieces: Vec<InternalToken<'a>> = vec![];
+        let mut internal_tokens: Vec<InternalToken<'a>> = vec![];
         let mut token_buffer_start: usize = 0;
+        // Exclusive upper bound
         let mut token_buffer_end: usize = 1;
-        let mut buffer_possibilities: Vec<String> = self.db_prefixed(&tokens[0].text);
+        let mut buffer_possibilities: Vec<String> = self.query_text_entries_starting_with(&tokens[0].text);
 
-        while token_buffer_end <= tokens.len() {
-            let current_substring = tokens[token_buffer_start..token_buffer_end]
-                .iter()
-                .map(|t| t.text.as_ref())
-                .collect::<String>();
+        while token_buffer_start < tokens.len() {
+            let next_token_exists = token_buffer_end + 1 <= tokens.len();
+            // closure for lazy eval
+            let possibilities_remain = || {
+                let current_substring = tokens[token_buffer_start..token_buffer_end]
+                    .iter()
+                    .map(|t| t.text.as_ref())
+                    .collect::<String>();
 
-            if buffer_possibilities
-                .iter()
-                .any(|p| p.starts_with(&current_substring))
-            {
+                buffer_possibilities
+                    .iter()
+                    .any(|p| p.starts_with(&current_substring))
+            };
+
+            if next_token_exists && possibilities_remain() {
                 // good, continue
                 token_buffer_end += 1;
             } else {
                 // if not, find a possibility that does work with shorter substring
-                let mut end = token_buffer_end - 1;
-                while end > token_buffer_start {
-                    let substring = tokens[token_buffer_start..end]
+                let mut longest_possibility_end = token_buffer_end;
+                while longest_possibility_end > token_buffer_start {
+                    let substring = tokens[token_buffer_start..longest_possibility_end]
                         .iter()
                         .map(|t| t.text.as_ref())
                         .collect::<String>();
@@ -327,42 +333,50 @@ impl Annotator {
                     if buffer_possibilities.contains(&substring) {
                         break;
                     }
-                    end -= 1;
+                    longest_possibility_end -= 1;
                 }
 
-                if end <= token_buffer_start + 1 {
+                // # of tokens that match possibilities is 0 or 1.
+                // Obviously if no possibilities exist, there will be 0, but
+                // we still have to advance, so we'll just advance by a single
+                // token.
+                let longest_is_single_token = longest_possibility_end <= token_buffer_start + 1;
+
+                if longest_is_single_token {
+                    // The number of tokens that match a suggestion is 0 or 1.
+                    // That is, we cannot generate readings for a longer text fragment.
                     let t = &tokens[token_buffer_start];
-                    pieces.push(t.try_into().unwrap_or_else(|_| t.text.clone().into()));
+                    internal_tokens.push(t.try_into().unwrap_or_else(|_| t.text.clone().into()));
                     token_buffer_start += 1;
                 } else {
-                    let substring = tokens[token_buffer_start..end]
+                    // We can concatenate two or more tokens together to create a longer text fragment, for which we know readings exist.
+                    let substring = tokens[token_buffer_start..longest_possibility_end]
                         .iter()
                         .map(|t| t.text.as_ref())
                         .collect::<String>();
-                    pieces.push(substring.into());
-                    token_buffer_start = end;
+                    internal_tokens.push(substring.into());
+                    token_buffer_start = longest_possibility_end;
                 }
 
+                // token_buffer_end is an exclusive bound
                 token_buffer_end = token_buffer_start + 1;
 
                 if let Some(t) = tokens.get(token_buffer_start) {
-                    buffer_possibilities = self.db_prefixed(&t.text);
+                    buffer_possibilities = self.query_text_entries_starting_with(&t.text);
                 }
             }
         }
 
-        // probably need to do something with the leftovers
-
         AnnotatedText {
-            fragments: pieces
+            fragments: internal_tokens
                 .into_iter()
-                .map(|token| self.annotate_token(token))
+                .map(|internal_token| self.annotate_internal_token(internal_token))
                 .collect(),
         }
     }
 
     pub fn annotate_with_first(&self, f: Format, input: &str) -> String {
-        let t = self.generate_annotations(input);
+        let t = self.annotate(input);
         t.fragments
             .into_iter()
             .map(|frag| match frag.annotations.first() {
