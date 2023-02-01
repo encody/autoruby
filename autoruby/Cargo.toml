@@ -5,6 +5,7 @@ description = "Easily generate furigana for various document formats"
 edition = "2021"
 license = "GPL-3.0-only"
 name = "autoruby"
+repository = "https://github.com/encody/autoruby"
 version = "0.1.0"
 
 [features]
