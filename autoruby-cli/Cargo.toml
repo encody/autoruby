@@ -4,7 +4,7 @@ name = "autoruby-cli"
 version = "0.1.0"
 
 [dependencies]
-autoruby = {path = "../autoruby", features = ["dict-autodownload"]}
+autoruby = {path = "../autoruby", features = ["frequency-full"], default-features = false}
 clap = {version = "4.0.30", features = ["derive"]}
 directories = "4.0.1"
 envy = "0.4.2"

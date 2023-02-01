@@ -9,21 +9,27 @@ mod parse;
 #[cfg(feature = "dict-autodownload")]
 #[tokio::main]
 async fn main() {
+    use std::path::PathBuf;
+
     dotenvy::dotenv().ok();
 
-    const DEFAULT_DB_PATH: &str = "./data/annotations.db3";
-    const DEFAULT_DICT_PATH: &str = "./data/dictionary.txt";
+    let out_dir = std::env::var("OUT_DIR").unwrap();
 
-    let db_path = &std::env::var("AUTORUBY_DB_PATH")
+    let default_db_path: PathBuf = [&out_dir, "./annotations.db3"].iter().collect();
+    let default_dict_path: PathBuf = [&out_dir, "./dictionary.txt"].iter().collect();
+
+    let db_path = std::env::var("AUTORUBY_DB_PATH")
         .ok()
-        .unwrap_or_else(|| DEFAULT_DB_PATH.to_string());
+        .map(|p| p.parse().unwrap())
+        .unwrap_or(default_db_path);
     let dict_path = &std::env::var("AUTORUBY_DICT_PATH")
         .ok()
-        .unwrap_or_else(|| DEFAULT_DICT_PATH.to_string());
+        .map(|p| p.parse().unwrap())
+        .unwrap_or(default_dict_path);
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=.env");
-    println!("cargo:rerun-if-changed={dict_path}");
+    println!("cargo:rerun-if-changed={}", dict_path.display());
 
     let dictionary_file = {
         if let Ok(file) = std::fs::File::open(dict_path) {
