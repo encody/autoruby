@@ -1,12 +1,26 @@
-use std::{borrow::Cow, path::Path, vec};
+use std::{
+    borrow::Cow,
+    collections::{hash_map::Entry, HashMap},
+    path::Path,
+    sync::RwLock,
+    vec,
+};
 
 use lindera::tokenizer::{Tokenizer, TokenizerConfig};
+use once_cell::sync::Lazy;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wana_kana::ConvertJapanese;
 
 use crate::format::Format;
+
+static MEMOIZE_ANNOTATIONS: Lazy<RwLock<HashMap<String, Vec<Annotation>>>> =
+    Lazy::new(|| RwLock::new(Default::default()));
+static MEMOIZE_COMMON: Lazy<RwLock<HashMap<String, bool>>> =
+    Lazy::new(|| RwLock::new(Default::default()));
+static MEMOIZE_PREFIXED: Lazy<RwLock<HashMap<String, Vec<String>>>> =
+    Lazy::new(|| RwLock::new(Default::default()));
 
 fn escape_sql_like(input: &str) -> String {
     input
@@ -153,7 +167,8 @@ impl<'a> TryFrom<&'_ lindera::Token<'a>> for InternalToken<'a> {
 
 impl Annotator {
     pub fn new(db_path: impl AsRef<Path>, avoid_common: bool) -> Self {
-        let tokenizer = Tokenizer::with_config(TokenizerConfig {
+        let tokenizer = Tokenizer::from_config(TokenizerConfig {
+            with_details: true,
             dictionary: lindera::tokenizer::DictionaryConfig {
                 kind: Some(lindera::DictionaryKind::IPADIC),
                 path: None,
@@ -178,6 +193,10 @@ impl Annotator {
     }
 
     pub fn find_annotations_for_word(&self, word: &str) -> Vec<Annotation> {
+        if let Some(o) = MEMOIZE_ANNOTATIONS.read().unwrap().get(word) {
+            return o.clone();
+        }
+
         // This function is a little janky. Although calculating relations like
         // this would be unnecessary if we used an ORM, I don't think this
         // project justifies the additional weight/complexity just for this
@@ -227,7 +246,10 @@ impl Annotator {
             }
         }
 
-        annotations
+        match MEMOIZE_ANNOTATIONS.write().unwrap().entry(word.to_string()) {
+            Entry::Occupied(o) => o.get().clone(),
+            Entry::Vacant(v) => v.insert(annotations).clone(),
+        }
     }
 
     fn annotate_internal_token<'a>(&self, token: InternalToken<'a>) -> AnnotatedTextFragment<'a> {
@@ -257,6 +279,10 @@ impl Annotator {
     }
 
     fn is_kanji_common(&self, input: &str) -> bool {
+        if let Some(c) = MEMOIZE_COMMON.read().unwrap().get(input) {
+            return *c;
+        }
+
         let mut query = self
             .db
             .prepare(
@@ -266,12 +292,23 @@ impl Annotator {
             )
             .unwrap();
 
-        query
+        let is_common = query
             .query_row([input], |r| r.get::<_, bool>(0))
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        MEMOIZE_COMMON
+            .write()
+            .unwrap()
+            .insert(input.to_string(), is_common);
+
+        is_common
     }
 
     fn query_text_entries_starting_with(&self, prefix: &str) -> Vec<String> {
+        if let Some(v) = MEMOIZE_PREFIXED.read().unwrap().get(prefix) {
+            return v.iter().map(Clone::clone).collect();
+        }
+
         let prefix_escaped = escape_sql_like(prefix);
         let mut query = self
             .db
@@ -282,11 +319,20 @@ impl Annotator {
             )
             .unwrap();
 
-        query
+        let res = query
             .query_map([prefix_escaped], |r| r.get::<_, String>(0))
             .unwrap()
             .filter_map(|a| a.ok())
-            .collect()
+            .collect::<Vec<_>>();
+
+        let ret = res.clone();
+
+        MEMOIZE_PREFIXED
+            .write()
+            .unwrap()
+            .insert(prefix.to_string(), res);
+
+        ret
     }
 
     pub fn annotate<'a>(&self, text: &'a str) -> AnnotatedText<'a> {
@@ -294,7 +340,7 @@ impl Annotator {
             return Default::default();
         }
 
-        let tokens = self.tokenizer.tokenize_with_details(text).unwrap();
+        let tokens = self.tokenizer.tokenize(text).unwrap();
 
         // tokens must have at least one element
 
