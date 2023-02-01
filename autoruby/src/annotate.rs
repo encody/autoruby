@@ -290,7 +290,7 @@ impl Annotator {
     }
 
     pub fn annotate<'a>(&self, text: &'a str) -> AnnotatedText<'a> {
-        if text.trim().len() == 0 {
+        if text.trim().is_empty() {
             return Default::default();
         }
 
@@ -302,10 +302,13 @@ impl Annotator {
         let mut token_buffer_start: usize = 0;
         // Exclusive upper bound
         let mut token_buffer_end: usize = 1;
-        let mut buffer_possibilities: Vec<String> = self.query_text_entries_starting_with(&tokens[0].text);
+        let mut buffer_possibilities: Vec<String> =
+            self.query_text_entries_starting_with(&tokens[0].text);
 
         while token_buffer_start < tokens.len() {
-            let next_token_exists = token_buffer_end + 1 <= tokens.len();
+            // remember: exclusive upper bound
+            let next_token_exists = token_buffer_end < tokens.len();
+
             // closure for lazy eval
             let possibilities_remain = || {
                 let current_substring = tokens[token_buffer_start..token_buffer_end]
