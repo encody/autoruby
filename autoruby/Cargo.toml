@@ -1,7 +1,9 @@
 [package]
 authors = ["Jacob Lindahl <aviator9402@gmail.com>"]
+categories = ["text-processing", "localization", "accessibility"]
 description = "Easily generate furigana for various document formats"
 edition = "2021"
+license = "GPL-3.0-only"
 name = "autoruby"
 version = "0.1.0"
 

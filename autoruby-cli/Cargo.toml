@@ -1,5 +1,9 @@
 [package]
+authors = ["Jacob Lindahl <aviator9402@gmail.com>"]
+categories = ["command-line-utilities", "text-processing", "localization", "accessibility"]
+description = "CLI to easily generate furigana for various document formats"
 edition = "2021"
+license = "GPL-3.0-only"
 name = "autoruby-cli"
 version = "0.1.0"
 
