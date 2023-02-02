@@ -1,3 +1,15 @@
+use std::rc::Rc;
+
+use dictionary::Dictionary;
+use once_cell::sync::Lazy;
+
+const DICTIONARY: Lazy<Rc<Dictionary>> = Lazy::new(|| {
+    let dict_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/dict.bin"));
+    let dictionary: Dictionary = bincode::deserialize(dict_bytes).unwrap();
+
+    Rc::new(dictionary)
+});
+
 pub mod annotate;
 pub mod dictionary;
 pub mod format;
@@ -5,25 +17,18 @@ pub mod parse;
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use crate::{annotate, format};
-
-    fn db_path() -> PathBuf {
-        let out_dir = std::env::var("OUT_DIR").unwrap();
-        PathBuf::from_iter([&out_dir, "./annotations.db3"])
-    }
 
     #[test]
     fn test_complex_short() {
-        let processor = annotate::Annotator::new(db_path(), true);
+        let processor = annotate::Annotator::new_with_default_dictionary(true);
         let result = processor.annotate_with_first(format::markdown, "全単射。");
         assert_eq!(result, "[全]{ぜん}[単]{たん}[射]{しゃ}。",);
     }
 
     #[test]
     fn test_simple() {
-        let processor = annotate::Annotator::new(db_path(), false);
+        let processor = annotate::Annotator::new_with_default_dictionary(false);
         let result = processor.annotate_with_first(
             format::markdown,
             "神は「光あれ」と言われた。すると光があった。",
@@ -36,7 +41,7 @@ mod tests {
 
     #[test]
     fn test_complex_long() {
-        let processor = annotate::Annotator::new(db_path(), true);
+        let processor = annotate::Annotator::new_with_default_dictionary(true);
         let result = processor.annotate_with_first(
             format::markdown,
             "数学において、全単射あるいは双射とは、写像であって、その写像の終域となる集合の任意の元に対し、その元を写像の像とする元が、写像の定義域となる集合に常にただ一つだけ存在するようなもの、すなわち単射かつ全射であるような写像のことを言う。",

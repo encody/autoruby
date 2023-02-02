@@ -1,14 +1,11 @@
-use std::io::BufRead;
+use std::{collections::BTreeMap, io::BufRead};
 
-use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 
-use crate::parse::dictionary_line;
+use crate::parse::{self, dictionary_line};
 
 pub const DOWNLOAD_URL: &str =
     "https://github.com/Doublevil/JmdictFurigana/releases/latest/download/JmdictFurigana.txt";
-
-/// Transactions of how many dictionary entries worth of insertions at a time?
-const BATCH_SIZE: usize = 1000;
 
 pub async fn download() -> Result<String, reqwest::Error> {
     reqwest::get(DOWNLOAD_URL).await.unwrap().text().await
@@ -34,106 +31,99 @@ pub fn frequency_entries() -> impl Iterator<Item = FrequencyEntry<'static>> {
     })
 }
 
-pub fn build(input_reader: impl BufRead, db: &Connection) {
-    db.execute_batch(
-        r#"--sql
-            create table if not exists text_entry (
-                id              integer primary key,
-                text            text not null,
-                text_common     boolean,
-                reading         text not null,
-                reading_common  boolean,
-                unique(text, reading)
-            );
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadingSpan {
+    pub start_index: u8,
+    pub end_index: u8,
+    pub text: String,
+}
 
-            create index if not exists idx_text_entry_text on text_entry(text);
-
-            create table if not exists ruby_entry (
-                id              integer primary key,
-                text_entry_id   integer not null,
-                start_index     byte not null,
-                end_index       byte not null,
-                rt              text not null,
-                foreign key(text_entry_id) references text_entry(id)
-            );
-        "#,
-    )
-    .unwrap();
-
-    let mut insert_text_entry = db
-        .prepare(
-            r#"--sql
-                insert or ignore into text_entry (text, reading) values (?1, ?2);
-            "#,
-        )
-        .unwrap();
-
-    let mut insert_ruby_entry = db
-        .prepare(
-            r#"--sql
-                insert into ruby_entry (text_entry_id, start_index, end_index, rt) values (?1, ?2, ?3, ?4);
-            "#,
-        )
-        .unwrap();
-
-    db.execute_batch("begin").unwrap();
-
-    for (i, line) in input_reader.lines().enumerate() {
-        if i % BATCH_SIZE == 0 && i != 0 {
-            db.execute_batch("commit").unwrap();
-            db.execute_batch("begin").unwrap();
-        }
-
-        let line = line.unwrap();
-        let (_, entry) = dictionary_line(&line).unwrap();
-
-        let rows_affected = insert_text_entry
-            .execute((&entry.text, &entry.reading))
-            .unwrap();
-
-        // skipping duplicates if database already exists
-        if rows_affected > 0 {
-            let id = db.last_insert_rowid();
-
-            for ruby in entry.rubies {
-                insert_ruby_entry
-                    .execute((&id, &ruby.start_index, &ruby.end_index, &ruby.rt))
-                    .unwrap();
-            }
+impl From<parse::ReadingSpan<'_>> for ReadingSpan {
+    fn from(value: parse::ReadingSpan<'_>) -> Self {
+        Self {
+            start_index: value.start_index,
+            end_index: value.end_index,
+            text: value.text.to_string(),
         }
     }
+}
 
-    db.execute_batch("commit").unwrap();
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextEntry {
+    pub text: String,
+    pub text_is_common: bool,
+    pub reading: String,
+    pub reading_is_common: bool,
+    pub reading_spans: Vec<ReadingSpan>,
+}
 
-    // frequency data
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Debug, Clone)]
+pub struct DictionaryIndex {
+    text: String,
+    reading: String,
+}
 
-    let mut insert_frequency_entry = db
-        .prepare(
-            r#"--sql
-                update text_entry
-                set text_common = ?1, reading_common = ?2
-                where text = ?3 and reading = ?4
-            "#,
-        )
-        .unwrap();
-
-    db.execute_batch("begin").unwrap();
-
-    for (i, frequency_entry) in frequency_entries().enumerate() {
-        if i != 0 && i % BATCH_SIZE == 0 {
-            db.execute_batch("commit").unwrap();
-            db.execute_batch("begin").unwrap();
+impl<T: AsRef<str>> From<T> for DictionaryIndex {
+    fn from(s: T) -> Self {
+        Self {
+            text: s.as_ref().to_string(),
+            reading: Default::default(),
         }
+    }
+}
 
-        insert_frequency_entry
-            .execute((
-                &frequency_entry.kanji_common,
-                &frequency_entry.reading_common,
-                &frequency_entry.kanji_element,
-                &frequency_entry.reading_element,
-            ))
-            .unwrap();
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Dictionary(BTreeMap<DictionaryIndex, TextEntry>);
+
+impl Dictionary {
+    pub fn lookup_word<'s>(&'s self, word: &str) -> Vec<&'s TextEntry> {
+        self.0
+            .range(DictionaryIndex::from(word)..)
+            .map_while(|(DictionaryIndex { text, .. }, entry)| (text == word).then_some(entry))
+            .collect()
     }
 
-    db.execute_batch("commit").unwrap();
+    pub fn lookup_prefixed<'s>(&'s self, prefix: &'s str) -> Vec<&'s TextEntry> {
+        self.0
+            .range(DictionaryIndex::from(prefix)..)
+            .map_while(|(DictionaryIndex { text, .. }, entry)| {
+                text.starts_with(prefix).then_some(entry)
+            })
+            .collect()
+    }
+}
+
+pub fn build(input_reader: impl BufRead) -> Dictionary {
+    let mut tree = input_reader
+        .lines()
+        .map(|line| {
+            let line = line.unwrap();
+            let (_, entry) = dictionary_line(&line).unwrap();
+            (
+                DictionaryIndex {
+                    text: entry.text.to_string(),
+                    reading: entry.reading.to_string(),
+                },
+                TextEntry {
+                    text: entry.text.to_string().into(),
+                    text_is_common: false,
+                    reading: entry.reading.to_string(),
+                    reading_is_common: false,
+                    reading_spans: entry.reading_spans.into_iter().map(Into::into).collect(),
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    frequency_entries().for_each(|freq| {
+        if let Some(e) = tree.get_mut(&DictionaryIndex {
+            text: freq.kanji_element.into(),
+            reading: freq.reading_element.into(),
+        }) {
+            e.reading_is_common = freq.reading_common;
+            e.text_is_common = freq.kanji_common;
+        }
+    });
+
+    Dictionary(tree)
 }

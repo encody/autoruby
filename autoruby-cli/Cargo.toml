@@ -9,11 +9,9 @@ repository = "https://github.com/encody/autoruby"
 version = "0.1.0"
 
 [dependencies]
-autoruby = {path = "../autoruby", version = "0.1.0", features = ["frequency-full"], default-features = false}
+autoruby = {path = "../autoruby", version = "0.1.0"}
 clap = {version = "4.0.30", features = ["derive"]}
-directories = "4.0.1"
 envy = "0.4.2"
-rusqlite = "0.28.0"
 serde = "1.0.152"
 tokio = "1.23.1"
 

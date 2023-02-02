@@ -5,45 +5,9 @@ use std::{
 };
 
 use autoruby::{
-    dictionary,
     format::{self, Format},
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use serde::Deserialize;
-
-const DB_FILENAME: &str = "annotations.db3";
-const ENV_PREFIX: &str = "AUTORUBY_";
-
-#[derive(Deserialize, Debug)]
-struct Config {
-    #[serde(default = "default_data_dir")]
-    data_dir: PathBuf,
-    #[serde(default = "default_db_path")]
-    db_path: PathBuf,
-}
-
-fn project_dirs() -> Option<directories::ProjectDirs> {
-    directories::ProjectDirs::from("io", "GeekLaunch", "autoruby-cli")
-}
-
-fn default_data_dir() -> PathBuf {
-    project_dirs()
-        .map(|p| p.cache_dir().to_path_buf())
-        .or_else(|| directories::BaseDirs::new().map(|c| c.cache_dir().to_path_buf()))
-        .unwrap()
-}
-
-fn default_db_path() -> PathBuf {
-    default_data_dir().join(DB_FILENAME)
-}
-
-async fn download_dictionary(db_path: impl AsRef<Path>) {
-    let dict_text = dictionary::download().await.unwrap();
-    dictionary::build(
-        dict_text.as_bytes(),
-        &rusqlite::Connection::open(db_path).unwrap(),
-    );
-}
 
 #[derive(Parser, Debug)]
 #[command(author, version)]
@@ -55,14 +19,6 @@ struct Arguments {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Download dictionary from the Internet
-    DownloadDict,
-    /// Remove data directory
-    Clean {
-        /// Are you sure?
-        #[arg(short, long)]
-        yes: bool,
-    },
     /// Annotate text
     Annotate(AnnotateArgs),
 }
@@ -74,10 +30,6 @@ struct AnnotateArgs {
 
     /// File to write output to, otherwise STDOUT
     output_path: Option<PathBuf>,
-
-    /// Detect if the dictionary exists and download it if necessary
-    #[arg(short, long)]
-    auto_download: bool,
 
     /// Include common kanji readings.
     #[arg(short = 'c', long)]
@@ -125,46 +77,16 @@ impl OutputMode {
     }
 }
 
-async fn download_dict_command(config: &Config) {
-    fs::create_dir_all(&config.data_dir).unwrap();
-    eprintln!("Downloading dictionary to {}...", config.db_path.display());
-    download_dictionary(&config.db_path).await;
-    eprintln!("Done downloading dictionary.");
-}
-
 #[tokio::main]
 async fn main() {
     let args = Arguments::parse();
-    let config: Config = envy::prefixed(ENV_PREFIX).from_env().unwrap();
 
     match args.command {
-        Command::DownloadDict => {
-            download_dict_command(&config).await;
-        }
-        Command::Clean { yes } => {
-            if yes {
-                eprintln!("Removing {}...", config.data_dir.display());
-                fs::remove_dir_all(config.data_dir).unwrap();
-                eprintln!("Done.");
-            } else {
-                eprintln!(
-                    "No action performed. Pass the --yes flag to remove {}.",
-                    config.data_dir.display()
-                );
-            }
-        }
         Command::Annotate(a) => {
-            if !config.db_path.exists() {
-                if a.auto_download {
-                    download_dict_command(&config).await;
-                } else {
-                    panic!("Dictionary not found: {}. Run `autoruby download-dict` to automatically download the dictionary, or re-run this command with the --auto-download flag.", config.db_path.display());
-                }
-            }
-
             let input_text = input(a.input_path);
 
-            let processor = autoruby::annotate::Annotator::new(&config.db_path, !a.include_common);
+            let processor =
+                autoruby::annotate::Annotator::new_with_default_dictionary(!a.include_common);
 
             let generated = processor.annotate_with_first(a.mode.formatter(), &input_text);
 

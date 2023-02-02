@@ -10,17 +10,17 @@ use nom::{
 };
 
 #[derive(Debug)]
-pub struct FuriganaEntry<'a> {
+pub struct TextEntry<'a> {
     pub text: &'a str,
     pub reading: &'a str,
-    pub rubies: Vec<RubyEntry<'a>>,
+    pub reading_spans: Vec<ReadingSpan<'a>>,
 }
 
 #[derive(Debug)]
-pub struct RubyEntry<'a> {
+pub struct ReadingSpan<'a> {
     pub start_index: u8,
     pub end_index: u8,
-    pub rt: &'a str,
+    pub text: &'a str,
 }
 
 pub fn take_range(input: &str) -> IResult<&str, (u8, u8)> {
@@ -38,34 +38,34 @@ pub fn take_range(input: &str) -> IResult<&str, (u8, u8)> {
     )(input)
 }
 
-pub fn take_ruby(input: &str) -> IResult<&str, RubyEntry> {
+pub fn take_reading_span(input: &str) -> IResult<&str, ReadingSpan> {
     map(
         separated_pair(take_range, char(':'), take_till1(|c| c == '\n' || c == ';')),
-        |((start_index, end_index), rt)| RubyEntry {
+        |((start_index, end_index), text)| ReadingSpan {
             start_index,
             end_index,
-            rt,
+            text,
         },
     )(input)
 }
 
-pub fn take_rubies(input: &str) -> IResult<&str, Vec<RubyEntry>> {
-    separated_list0(char(';'), take_ruby)(input)
+pub fn take_reading_spans(input: &str) -> IResult<&str, Vec<ReadingSpan>> {
+    separated_list0(char(';'), take_reading_span)(input)
 }
 
-pub fn dictionary_line(input: &str) -> IResult<&str, FuriganaEntry> {
+pub fn dictionary_line(input: &str) -> IResult<&str, TextEntry> {
     map(
         tuple((
             take_until("|"),
             char('|'),
             take_until("|"),
             char('|'),
-            take_rubies,
+            take_reading_spans,
         )),
-        |(text, _, reading, _, rubies)| FuriganaEntry {
+        |(text, _, reading, _, reading_spans)| TextEntry {
             text,
             reading,
-            rubies,
+            reading_spans,
         },
     )(input)
 }

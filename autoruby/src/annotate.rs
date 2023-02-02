@@ -1,88 +1,53 @@
-use std::{
-    borrow::Cow,
-    collections::{hash_map::Entry, HashMap},
-    path::Path,
-    sync::RwLock,
-    vec,
-};
+use std::{borrow::Cow, cmp::Ordering, rc::Rc, vec};
 
 use lindera::tokenizer::{Tokenizer, TokenizerConfig};
-use once_cell::sync::Lazy;
-use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wana_kana::ConvertJapanese;
 
-use crate::format::Format;
-
-static MEMOIZE_ANNOTATIONS: Lazy<RwLock<HashMap<String, Vec<Annotation>>>> =
-    Lazy::new(|| RwLock::new(Default::default()));
-static MEMOIZE_COMMON: Lazy<RwLock<HashMap<String, bool>>> =
-    Lazy::new(|| RwLock::new(Default::default()));
-static MEMOIZE_PREFIXED: Lazy<RwLock<HashMap<String, Vec<String>>>> =
-    Lazy::new(|| RwLock::new(Default::default()));
-
-fn escape_sql_like(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-}
+use crate::{
+    dictionary::{Dictionary, TextEntry},
+    format::Format,
+};
 
 pub struct Annotator {
-    db: Connection,
+    dictionary: Rc<Dictionary>,
     tokenizer: Tokenizer,
     avoid_common: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnnotationSpan {
-    pub start_index: usize,
-    pub end_index: usize,
-    pub text: String,
+fn apply(text_entry: &TextEntry, text: &str, format: Format) -> String {
+    // assuming the rubies are already sorted
+    let text = text.chars().collect::<Vec<_>>();
+    let (last_index, mut s) = text_entry.reading_spans.iter().fold(
+        (0, String::new()),
+        |(valid_next_index, mut s), span| {
+            let start_index = span.start_index as usize;
+            let end_index = span.end_index as usize;
+            if start_index >= valid_next_index {
+                s.push_str(
+                    &text[valid_next_index..start_index]
+                        .iter()
+                        .collect::<String>(),
+                );
+                let base = &text[start_index..=end_index].iter().collect::<String>();
+                let text = &span.text;
+
+                s.push_str(&format(base, text));
+                (end_index + 1, s)
+            } else {
+                (valid_next_index, s)
+            }
+        },
+    );
+
+    s.push_str(&text[last_index..].iter().collect::<String>());
+    s
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Annotation {
-    pub reading: String,
-    pub spans: Vec<AnnotationSpan>,
-}
-
-impl Annotation {
-    fn apply(&self, text: &str, format: Format) -> String {
-        // assuming the rubies are already sorted
-        let text = text.chars().collect::<Vec<_>>();
-        let (last_index, mut s) =
-            self.spans
-                .iter()
-                .fold((0, String::new()), |(valid_next_index, mut s), span| {
-                    if span.start_index >= valid_next_index {
-                        s.push_str(
-                            &text[valid_next_index..span.start_index]
-                                .iter()
-                                .collect::<String>(),
-                        );
-                        let base = &text[span.start_index..=span.end_index]
-                            .iter()
-                            .collect::<String>();
-                        let text = &span.text;
-
-                        s.push_str(&format(base, text));
-                        (span.end_index + 1, s)
-                    } else {
-                        (valid_next_index, s)
-                    }
-                });
-
-        s.push_str(&text[last_index..].iter().collect::<String>());
-        s
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct AnnotatedTextFragment<'a> {
     pub text: Cow<'a, str>,
-    pub annotations: Vec<Annotation>,
+    pub annotations: Vec<&'a TextEntry>,
 }
 
 impl<'a> AnnotatedTextFragment<'a> {
@@ -94,7 +59,7 @@ impl<'a> AnnotatedTextFragment<'a> {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct AnnotatedText<'a> {
     pub fragments: Vec<AnnotatedTextFragment<'a>>,
 }
@@ -165,8 +130,18 @@ impl<'a> TryFrom<&'_ lindera::Token<'a>> for InternalToken<'a> {
     }
 }
 
+impl Default for Annotator {
+    fn default() -> Self {
+        Annotator::new(Rc::clone(&*crate::DICTIONARY), true)
+    }
+}
+
 impl Annotator {
-    pub fn new(db_path: impl AsRef<Path>, avoid_common: bool) -> Self {
+    pub fn new_with_default_dictionary(avoid_common: bool) -> Self {
+        Annotator::new(Rc::clone(&*crate::DICTIONARY), avoid_common)
+    }
+
+    pub fn new(dictionary: Rc<Dictionary>, avoid_common: bool) -> Self {
         let tokenizer = Tokenizer::from_config(TokenizerConfig {
             with_details: true,
             dictionary: lindera::tokenizer::DictionaryConfig {
@@ -178,164 +153,47 @@ impl Annotator {
         })
         .expect("Failed to initialize tokenizer");
 
-        let db = Connection::open(&db_path).unwrap_or_else(|e| {
-            panic!(
-                "Failed to connect to database at {}: {e}",
-                &db_path.as_ref().display(),
-            )
-        });
-
         Self {
-            db,
+            dictionary,
             tokenizer,
             avoid_common,
         }
     }
 
-    pub fn find_annotations_for_word(&self, word: &str) -> Vec<Annotation> {
-        if let Some(o) = MEMOIZE_ANNOTATIONS.read().unwrap().get(word) {
-            return o.clone();
-        }
-
-        // This function is a little janky. Although calculating relations like
-        // this would be unnecessary if we used an ORM, I don't think this
-        // project justifies the additional weight/complexity just for this
-        // single function. ORMs are probably slower, too.
-        let mut query = self
-            .db
-            .prepare(
-                r#"--sql
-                    select text_entry_id, reading, start_index, end_index, rt
-                    from text_entry
-                    join ruby_entry on text_entry.id = ruby_entry.text_entry_id
-                    where text_entry.text = ?1
-                    order by text_entry_id asc, end_index asc
-                "#,
-            )
-            .unwrap();
-
-        let spans = query
-            .query_map([word], |r| {
-                let text_entry_id: usize = r.get(0)?;
-                let reading: String = r.get(1)?;
-                Ok((
-                    text_entry_id,
-                    reading,
-                    AnnotationSpan {
-                        start_index: r.get(2)?,
-                        end_index: r.get(3)?,
-                        text: r.get(4)?,
-                    },
-                ))
-            })
-            .unwrap()
-            .filter_map(|r| r.ok())
-            .collect::<Vec<_>>();
-
-        let mut annotations = vec![];
-        let mut last_group_id = 0; // sqlite indices start at 1
-        for (group_id, reading, span) in spans {
-            if group_id != last_group_id {
-                annotations.push(Annotation {
-                    reading,
-                    spans: vec![span],
-                });
-                last_group_id = group_id;
-            } else {
-                annotations.last_mut().unwrap().spans.push(span);
-            }
-        }
-
-        match MEMOIZE_ANNOTATIONS.write().unwrap().entry(word.to_string()) {
-            Entry::Occupied(o) => o.get().clone(),
-            Entry::Vacant(v) => v.insert(annotations).clone(),
-        }
-    }
-
-    fn annotate_internal_token<'a>(&self, token: InternalToken<'a>) -> AnnotatedTextFragment<'a> {
-        if self.avoid_common && self.is_kanji_common(&token.lookup_text) {
-            return AnnotatedTextFragment::plain(token.lookup_text.into());
-        }
-
+    fn annotate_internal_token<'a>(
+        &'a self,
+        token: InternalToken<'a>,
+    ) -> AnnotatedTextFragment<'a> {
         let reading_hint = token.reading_hint.as_ref();
 
-        let annotations = reading_hint.map_or_else(
-            || self.find_annotations_for_word(&token.lookup_text),
-            |reading_hint| {
-                let (mut reading_matches, others) = self
-                    .find_annotations_for_word(&token.lookup_text)
-                    .into_iter()
-                    .partition::<Vec<_>, _>(|v| &v.reading == reading_hint);
+        let mut entries = self.dictionary.lookup_word(&token.lookup_text);
 
-                reading_matches.extend(others);
-                reading_matches
-            },
-        );
+        if self.avoid_common {
+            entries.retain(|e| !e.text_is_common);
+        }
+
+        entries.sort_by(|a, b| {
+            match (
+                Some(&a.reading) == reading_hint,
+                Some(&b.reading) == reading_hint,
+                a.reading_is_common,
+                b.reading_is_common,
+            ) {
+                (true, false, ..) => Ordering::Less,
+                (false, true, ..) => Ordering::Greater,
+                (_, _, true, false) => Ordering::Less,
+                (_, _, false, true) => Ordering::Greater,
+                _ => Ordering::Equal,
+            }
+        });
 
         AnnotatedTextFragment {
             text: token.original_text,
-            annotations,
+            annotations: entries,
         }
     }
 
-    fn is_kanji_common(&self, input: &str) -> bool {
-        if let Some(c) = MEMOIZE_COMMON.read().unwrap().get(input) {
-            return *c;
-        }
-
-        let mut query = self
-            .db
-            .prepare(
-                r#"--sql
-                    select text_common from text_entry where text = ?1
-                "#,
-            )
-            .unwrap();
-
-        let is_common = query
-            .query_row([input], |r| r.get::<_, bool>(0))
-            .unwrap_or_default();
-
-        MEMOIZE_COMMON
-            .write()
-            .unwrap()
-            .insert(input.to_string(), is_common);
-
-        is_common
-    }
-
-    fn query_text_entries_starting_with(&self, prefix: &str) -> Vec<String> {
-        if let Some(v) = MEMOIZE_PREFIXED.read().unwrap().get(prefix) {
-            return v.iter().map(Clone::clone).collect();
-        }
-
-        let prefix_escaped = escape_sql_like(prefix);
-        let mut query = self
-            .db
-            .prepare(
-                r#"--sql
-                    select text from text_entry where text like ?1 || '%' escape '\'
-                "#,
-            )
-            .unwrap();
-
-        let res = query
-            .query_map([prefix_escaped], |r| r.get::<_, String>(0))
-            .unwrap()
-            .filter_map(|a| a.ok())
-            .collect::<Vec<_>>();
-
-        let ret = res.clone();
-
-        MEMOIZE_PREFIXED
-            .write()
-            .unwrap()
-            .insert(prefix.to_string(), res);
-
-        ret
-    }
-
-    pub fn annotate<'a>(&self, text: &'a str) -> AnnotatedText<'a> {
+    pub fn annotate<'a>(&'a self, text: &'a str) -> AnnotatedText<'a> {
         if text.trim().is_empty() {
             return Default::default();
         }
@@ -348,8 +206,7 @@ impl Annotator {
         let mut token_buffer_start: usize = 0;
         // Exclusive upper bound
         let mut token_buffer_end: usize = 1;
-        let mut buffer_possibilities: Vec<String> =
-            self.query_text_entries_starting_with(&tokens[0].text);
+        let mut buffer_possibilities = self.dictionary.lookup_prefixed(&tokens[0].text);
 
         while token_buffer_start < tokens.len() {
             // remember: exclusive upper bound
@@ -364,7 +221,7 @@ impl Annotator {
 
                 buffer_possibilities
                     .iter()
-                    .any(|p| p.starts_with(&current_substring))
+                    .any(|p| p.text.starts_with(&current_substring))
             };
 
             if next_token_exists && possibilities_remain() {
@@ -379,7 +236,7 @@ impl Annotator {
                         .map(|t| t.text.as_ref())
                         .collect::<String>();
 
-                    if buffer_possibilities.contains(&substring) {
+                    if buffer_possibilities.iter().any(|p| &p.text == &substring) {
                         break;
                     }
                     longest_possibility_end -= 1;
@@ -411,7 +268,7 @@ impl Annotator {
                 token_buffer_end = token_buffer_start + 1;
 
                 if let Some(t) = tokens.get(token_buffer_start) {
-                    buffer_possibilities = self.query_text_entries_starting_with(&t.text);
+                    buffer_possibilities = self.dictionary.lookup_prefixed(&t.text);
                 }
             }
         }
@@ -429,7 +286,7 @@ impl Annotator {
         t.fragments
             .into_iter()
             .map(|frag| match frag.annotations.first() {
-                Some(a) => a.apply(&frag.text, f).into(),
+                Some(a) => apply(a, &frag.text, f).into(),
                 None => frag.text,
             })
             .collect()
