@@ -14,15 +14,17 @@ dict-autodownload = []
 frequency-full = ["jmdict/full"]
 
 [dependencies]
-bincode = "1.3.3"
-jmdict = "2.0.0"
-lindera = {version = "0.19.5", features = ["ipadic"]}
-nom = "7.1.1"
-once_cell = "1.17.0"
-reqwest = "0.11.13"
-serde = "1.0.151"
-thiserror = "1.0.38"
-wana_kana = "3.0.0"
+bincode = "1"
+jmdict = "2"
+lindera-core = "0.24"
+lindera-dictionary = "0.24"
+lindera-tokenizer = {version = "0.24", features = ["ipadic"]}
+nom = "7"
+once_cell = "1"
+reqwest = "0.11"
+serde = "1"
+thiserror = "1"
+wana_kana = "3"
 
 [build-dependencies]
 bincode = "1.3.3"

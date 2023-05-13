@@ -1,6 +1,6 @@
-use std::{borrow::Cow, cmp::Ordering, rc::Rc, vec};
+use std::{borrow::Cow, cmp::Ordering, vec};
 
-use lindera::tokenizer::{Tokenizer, TokenizerConfig};
+use lindera_tokenizer::tokenizer::{Tokenizer, TokenizerConfig};
 use thiserror::Error;
 use wana_kana::ConvertJapanese;
 
@@ -9,8 +9,8 @@ use crate::{
     format::Format,
 };
 
-pub struct Annotator {
-    dictionary: Rc<Dictionary>,
+pub struct Annotator<'a> {
+    dictionary: &'a Dictionary,
     tokenizer: Tokenizer,
     avoid_common: bool,
 }
@@ -71,6 +71,17 @@ struct InternalToken<'a> {
     pub reading_hint: Option<String>,
 }
 
+impl<'a> From<&'a str> for InternalToken<'a> {
+    fn from(value: &'a str) -> Self {
+        let lookup_text = value.to_string();
+        Self {
+            original_text: value.into(),
+            lookup_text,
+            reading_hint: None,
+        }
+    }
+}
+
 impl<'a> From<Cow<'a, str>> for InternalToken<'a> {
     fn from(text: Cow<'a, str>) -> Self {
         let lookup_text = text.to_string();
@@ -95,8 +106,6 @@ impl<'a> From<String> for InternalToken<'a> {
 
 #[derive(Debug, Clone, Error)]
 enum TokenError {
-    #[error("Missing details on token \"{token_text}\"")]
-    MissingDetails { token_text: String },
     #[error("Unknown details format on token \"{token_text}\": {details:?}")]
     UnknownDetails {
         token_text: String,
@@ -104,52 +113,42 @@ enum TokenError {
     },
 }
 
-impl<'a> TryFrom<&'_ lindera::Token<'a>> for InternalToken<'a> {
-    type Error = TokenError;
-
-    fn try_from(token: &'_ lindera::Token<'a>) -> Result<Self, Self::Error> {
-        let details = &token
-            .details
-            .as_ref()
-            .ok_or_else(|| TokenError::MissingDetails {
-                token_text: token.text.to_string(),
-            })?[..];
-
+impl<'a> InternalToken<'a> {
+    fn from_token(token_text: &'a str, details: &[impl AsRef<str>]) -> Result<Self, TokenError> {
         if let [_, _, _, _, _, _, dictionary_form, reading_katakana, _pronunciation] = details {
             Ok(Self {
-                original_text: token.text.clone(),
-                lookup_text: dictionary_form.clone(),
-                reading_hint: Some(reading_katakana.to_hiragana()),
+                original_text: token_text.into(),
+                lookup_text: dictionary_form.as_ref().to_string(),
+                reading_hint: Some(reading_katakana.as_ref().to_hiragana()),
             })
         } else {
             Err(TokenError::UnknownDetails {
-                token_text: token.text.to_string(),
-                details: details.to_vec(),
+                token_text: token_text.to_string(),
+                details: details.iter().map(|s| s.as_ref().to_string()).collect(),
             })
         }
     }
 }
 
-impl Default for Annotator {
+impl<'a> Default for Annotator<'a> {
     fn default() -> Self {
-        Annotator::new(Rc::clone(&*crate::DICTIONARY), true)
+        Annotator::new(&crate::DICTIONARY, true)
     }
 }
 
-impl Annotator {
+impl<'a> Annotator<'a> {
     pub fn new_with_default_dictionary(avoid_common: bool) -> Self {
-        Annotator::new(Rc::clone(&*crate::DICTIONARY), avoid_common)
+        Annotator::new(&crate::DICTIONARY, avoid_common)
     }
 
-    pub fn new(dictionary: Rc<Dictionary>, avoid_common: bool) -> Self {
+    pub fn new(dictionary: &'a Dictionary, avoid_common: bool) -> Self {
         let tokenizer = Tokenizer::from_config(TokenizerConfig {
-            with_details: true,
-            dictionary: lindera::tokenizer::DictionaryConfig {
-                kind: Some(lindera::DictionaryKind::IPADIC),
+            dictionary: lindera_dictionary::DictionaryConfig {
+                kind: Some(lindera_dictionary::DictionaryKind::IPADIC),
                 path: None,
             },
             user_dictionary: None,
-            mode: lindera::mode::Mode::Normal,
+            mode: lindera_core::mode::Mode::Normal,
         })
         .expect("Failed to initialize tokenizer");
 
@@ -160,10 +159,10 @@ impl Annotator {
         }
     }
 
-    fn annotate_internal_token<'a>(
-        &'a self,
-        token: InternalToken<'a>,
-    ) -> AnnotatedTextFragment<'a> {
+    fn annotate_internal_token<'b>(
+        &'b self,
+        token: InternalToken<'b>,
+    ) -> AnnotatedTextFragment<'b> {
         let reading_hint = token.reading_hint.as_ref();
 
         let mut entries = self.dictionary.lookup_word(&token.lookup_text);
@@ -193,20 +192,20 @@ impl Annotator {
         }
     }
 
-    pub fn annotate<'a>(&'a self, text: &'a str) -> AnnotatedText<'a> {
+    pub fn annotate<'b>(&'b self, text: &'b str) -> AnnotatedText<'b> {
         if text.trim().is_empty() {
             return Default::default();
         }
 
-        let tokens = self.tokenizer.tokenize(text).unwrap();
+        let mut tokens = self.tokenizer.tokenize(text).unwrap();
 
         // tokens must have at least one element
 
-        let mut internal_tokens: Vec<InternalToken<'a>> = vec![];
+        let mut internal_tokens: Vec<InternalToken<'b>> = vec![];
         let mut token_buffer_start: usize = 0;
         // Exclusive upper bound
         let mut token_buffer_end: usize = 1;
-        let mut buffer_possibilities = self.dictionary.lookup_prefixed(&tokens[0].text);
+        let mut buffer_possibilities = self.dictionary.lookup_prefixed(tokens[0].text);
 
         while token_buffer_start < tokens.len() {
             // remember: exclusive upper bound
@@ -216,7 +215,7 @@ impl Annotator {
             let possibilities_remain = || {
                 let current_substring = tokens[token_buffer_start..token_buffer_end]
                     .iter()
-                    .map(|t| t.text.as_ref())
+                    .map(|t| t.text)
                     .collect::<String>();
 
                 buffer_possibilities
@@ -233,10 +232,10 @@ impl Annotator {
                 while longest_possibility_end > token_buffer_start {
                     let substring = tokens[token_buffer_start..longest_possibility_end]
                         .iter()
-                        .map(|t| t.text.as_ref())
+                        .map(|t| t.text)
                         .collect::<String>();
 
-                    if buffer_possibilities.iter().any(|p| &p.text == &substring) {
+                    if buffer_possibilities.iter().any(|p| p.text == substring) {
                         break;
                     }
                     longest_possibility_end -= 1;
@@ -251,14 +250,20 @@ impl Annotator {
                 if longest_is_single_token {
                     // The number of tokens that match a suggestion is 0 or 1.
                     // That is, we cannot generate readings for a longer text fragment.
-                    let t = &tokens[token_buffer_start];
-                    internal_tokens.push(t.try_into().unwrap_or_else(|_| t.text.clone().into()));
+                    let t = &mut tokens[token_buffer_start];
+                    let details = t
+                        .get_details()
+                        .map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>());
+                    let internal_token = details
+                        .and_then(|details| InternalToken::from_token(t.text, &details).ok())
+                        .unwrap_or_else(|| t.text.into());
+                    internal_tokens.push(internal_token);
                     token_buffer_start += 1;
                 } else {
                     // We can concatenate two or more tokens together to create a longer text fragment, for which we know readings exist.
                     let substring = tokens[token_buffer_start..longest_possibility_end]
                         .iter()
-                        .map(|t| t.text.as_ref())
+                        .map(|t| t.text)
                         .collect::<String>();
                     internal_tokens.push(substring.into());
                     token_buffer_start = longest_possibility_end;
@@ -268,7 +273,7 @@ impl Annotator {
                 token_buffer_end = token_buffer_start + 1;
 
                 if let Some(t) = tokens.get(token_buffer_start) {
-                    buffer_possibilities = self.dictionary.lookup_prefixed(&t.text);
+                    buffer_possibilities = self.dictionary.lookup_prefixed(t.text);
                 }
             }
         }

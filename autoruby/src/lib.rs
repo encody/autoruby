@@ -1,14 +1,12 @@
-use std::rc::Rc;
-
 use dictionary::Dictionary;
 use once_cell::sync::Lazy;
 
 #[cfg(feature = "dict-autodownload")]
-const DICTIONARY: Lazy<Rc<Dictionary>> = Lazy::new(|| {
+static DICTIONARY: Lazy<Dictionary> = Lazy::new(|| {
     let dict_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/dict.bin"));
     let dictionary: Dictionary = bincode::deserialize(dict_bytes).unwrap();
 
-    Rc::new(dictionary)
+    dictionary
 });
 
 pub mod annotate;

@@ -105,7 +105,7 @@ pub fn build(input_reader: impl BufRead) -> Dictionary {
                     reading: entry.reading.to_string(),
                 },
                 TextEntry {
-                    text: entry.text.to_string().into(),
+                    text: entry.text.to_string(),
                     text_is_common: false,
                     reading: entry.reading.to_string(),
                     reading_is_common: false,
