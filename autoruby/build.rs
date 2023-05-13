@@ -1,14 +1,14 @@
 #![allow(unused)]
 
-#[cfg(feature = "dict-autodownload")]
+#[cfg(feature = "integrated")]
 #[path = "./src/dictionary.rs"]
 mod dictionary;
 
-#[cfg(feature = "dict-autodownload")]
+#[cfg(feature = "integrated")]
 #[path = "./src/parse.rs"]
 mod parse;
 
-#[cfg(feature = "dict-autodownload")]
+#[cfg(feature = "integrated")]
 #[tokio::main]
 async fn main() {
     use std::path::PathBuf;
@@ -27,7 +27,7 @@ async fn main() {
         if let Ok(file) = std::fs::File::open(&furigana_path) {
             file
         } else {
-            let dictionary_file = dictionary::download().await.unwrap();
+            let dictionary_file = reqwest::get(dictionary::DOWNLOAD_URL).await.unwrap().text().await.unwrap();
             std::fs::write(&furigana_path, dictionary_file).unwrap();
             std::fs::File::open(&furigana_path).unwrap()
         }
@@ -38,5 +38,5 @@ async fn main() {
     std::fs::write(bin_path, bincode::serialize(&dict).unwrap()).unwrap();
 }
 
-#[cfg(not(feature = "dict-autodownload"))]
+#[cfg(not(feature = "integrated"))]
 fn main() {}

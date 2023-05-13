@@ -4,9 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use autoruby::{
-    format::{self, Format},
-};
+use autoruby::format::{self, Format};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
@@ -86,7 +84,7 @@ async fn main() {
             let input_text = input(a.input_path);
 
             let processor =
-                autoruby::annotate::Annotator::new_with_default_dictionary(!a.include_common);
+                autoruby::annotate::Annotator::new_with_integrated_dictionary(!a.include_common);
 
             let generated = processor.annotate_with_first(a.mode.formatter(), &input_text);
 

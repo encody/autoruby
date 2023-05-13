@@ -130,6 +130,7 @@ impl<'a> InternalToken<'a> {
     }
 }
 
+#[cfg(feature = "integrated")]
 impl<'a> Default for Annotator<'a> {
     fn default() -> Self {
         Annotator::new(&crate::DICTIONARY, true)
@@ -137,7 +138,8 @@ impl<'a> Default for Annotator<'a> {
 }
 
 impl<'a> Annotator<'a> {
-    pub fn new_with_default_dictionary(avoid_common: bool) -> Self {
+    #[cfg(feature = "integrated")]
+    pub fn new_with_integrated_dictionary(avoid_common: bool) -> Self {
         Annotator::new(&crate::DICTIONARY, avoid_common)
     }
 
@@ -260,7 +262,8 @@ impl<'a> Annotator<'a> {
                     internal_tokens.push(internal_token);
                     token_buffer_start += 1;
                 } else {
-                    // We can concatenate two or more tokens together to create a longer text fragment, for which we know readings exist.
+                    // We can concatenate two or more tokens together to create
+                    // a longer text fragment, for which we know readings exist.
                     let substring = tokens[token_buffer_start..longest_possibility_end]
                         .iter()
                         .map(|t| t.text)

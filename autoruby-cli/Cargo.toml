@@ -10,10 +10,10 @@ version = "0.2.0"
 
 [dependencies]
 autoruby = {path = "../autoruby", version = "0.2.0"}
-clap = {version = "4.0.30", features = ["derive"]}
-envy = "0.4.2"
-serde = "1.0.152"
-tokio = "1.23.1"
+clap = {version = "4", features = ["derive"]}
+envy = "0.4"
+serde = "1"
+tokio = "1"
 
 [[bin]]
 name = "autoruby"

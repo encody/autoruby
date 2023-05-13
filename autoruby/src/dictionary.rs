@@ -1,15 +1,9 @@
 use std::{collections::BTreeMap, io::BufRead};
 
-use serde::{Deserialize, Serialize};
-
 use crate::parse::{self, dictionary_line};
 
 pub const DOWNLOAD_URL: &str =
     "https://github.com/Doublevil/JmdictFurigana/releases/latest/download/JmdictFurigana.txt";
-
-pub async fn download() -> Result<String, reqwest::Error> {
-    reqwest::get(DOWNLOAD_URL).await.unwrap().text().await
-}
 
 pub struct FrequencyEntry<'a> {
     kanji_element: &'a str,
@@ -31,7 +25,8 @@ pub fn frequency_entries() -> impl Iterator<Item = FrequencyEntry<'static>> {
     })
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub struct ReadingSpan {
     pub start_index: u8,
     pub end_index: u8,
@@ -48,7 +43,8 @@ impl From<parse::ReadingSpan<'_>> for ReadingSpan {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub struct TextEntry {
     pub text: String,
     pub text_is_common: bool,
@@ -57,7 +53,8 @@ pub struct TextEntry {
     pub reading_spans: Vec<ReadingSpan>,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
 pub struct DictionaryIndex {
     text: String,
     reading: String,
@@ -72,7 +69,8 @@ impl<T: AsRef<str>> From<T> for DictionaryIndex {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub struct Dictionary(BTreeMap<DictionaryIndex, TextEntry>);
 
 impl Dictionary {
