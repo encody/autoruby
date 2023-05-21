@@ -19,13 +19,15 @@ bincode = {version = "1", optional = true}
 jmdict = "2"
 lindera-core = "0.24"
 lindera-dictionary = "0.24"
-lindera-tokenizer = {version = "0.24", features = ["ipadic"]}
+lindera-tokenizer = {version = "0.24", features = ["unidic"]}
 nom = "7"
 once_cell = {version = "1", optional = true}
 reqwest = {version = "0.11", optional = true}
 serde = {version = "1", optional = true}
-thiserror = "1"
 wana_kana = "3"
+
+[dev-dependencies]
+pretty_assertions = "1.3"
 
 [build-dependencies]
 bincode = {version = "1", optional = true}

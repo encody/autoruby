@@ -27,7 +27,12 @@ async fn main() {
         if let Ok(file) = std::fs::File::open(&furigana_path) {
             file
         } else {
-            let dictionary_file = reqwest::get(dictionary::DOWNLOAD_URL).await.unwrap().text().await.unwrap();
+            let dictionary_file = reqwest::get(dictionary::DOWNLOAD_URL)
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap();
             std::fs::write(&furigana_path, dictionary_file).unwrap();
             std::fs::File::open(&furigana_path).unwrap()
         }

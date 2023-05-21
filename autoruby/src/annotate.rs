@@ -1,7 +1,6 @@
 use std::{borrow::Cow, cmp::Ordering, vec};
 
 use lindera_tokenizer::tokenizer::{Tokenizer, TokenizerConfig};
-use thiserror::Error;
 use wana_kana::ConvertJapanese;
 
 use crate::{
@@ -104,28 +103,34 @@ impl<'a> From<String> for InternalToken<'a> {
     }
 }
 
-#[derive(Debug, Clone, Error)]
-enum TokenError {
-    #[error("Unknown details format on token \"{token_text}\": {details:?}")]
-    UnknownDetails {
-        token_text: String,
-        details: Vec<String>,
-    },
+#[derive(Debug)]
+struct Details<'a>(&'a [String]);
+
+impl<'a, T: AsRef<[String]>> From<&'a T> for Details<'a> {
+    fn from(value: &'a T) -> Self {
+        Self(value.as_ref())
+    }
+}
+
+impl<'a> Details<'a> {
+    fn reading_katakana(&'a self) -> &'a str {
+        &self.0[9]
+    }
+
+    fn dictionary_form(&'a self) -> &'a str {
+        &self.0[10]
+    }
 }
 
 impl<'a> InternalToken<'a> {
-    fn from_token(token_text: &'a str, details: &[impl AsRef<str>]) -> Result<Self, TokenError> {
-        if let [_, _, _, _, _, _, dictionary_form, reading_katakana, _pronunciation] = details {
-            Ok(Self {
-                original_text: token_text.into(),
-                lookup_text: dictionary_form.as_ref().to_string(),
-                reading_hint: Some(reading_katakana.as_ref().to_hiragana()),
-            })
-        } else {
-            Err(TokenError::UnknownDetails {
-                token_text: token_text.to_string(),
-                details: details.iter().map(|s| s.as_ref().to_string()).collect(),
-            })
+    fn from_token(token_text: &'a str, details: Details<'_>) -> Self {
+        if token_text == "元" {
+            dbg!(&details);
+        }
+        Self {
+            original_text: token_text.into(),
+            lookup_text: details.dictionary_form().to_string(),
+            reading_hint: Some(details.reading_katakana().to_hiragana()),
         }
     }
 }
@@ -144,9 +149,11 @@ impl<'a> Annotator<'a> {
     }
 
     pub fn new(dictionary: &'a Dictionary, avoid_common: bool) -> Self {
+        let dictionary_kind = lindera_dictionary::DictionaryKind::UniDic;
+
         let tokenizer = Tokenizer::from_config(TokenizerConfig {
             dictionary: lindera_dictionary::DictionaryConfig {
-                kind: Some(lindera_dictionary::DictionaryKind::IPADIC),
+                kind: Some(dictionary_kind),
                 path: None,
             },
             user_dictionary: None,
@@ -257,7 +264,7 @@ impl<'a> Annotator<'a> {
                         .get_details()
                         .map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>());
                     let internal_token = details
-                        .and_then(|details| InternalToken::from_token(t.text, &details).ok())
+                        .map(|details| InternalToken::from_token(t.text, (&details).into()))
                         .unwrap_or_else(|| t.text.into());
                     internal_tokens.push(internal_token);
                     token_buffer_start += 1;

@@ -10,6 +10,11 @@ To generate the database for yourself, first download the text file either manua
 
 If the `integrated` feature is enabled, you can run the `build.rs` script to compile the dictionary into a binary database. (It will run automatically, either by your IDE or when running `cargo build`.) The dictionary and database files will be saved to path in the [`OUT_DIR` environment variable](https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts).
 
+## Future work
+
+- Option to use katakana instead of hiragana for furigana.
+- Option to only display the furigana for a word the first time it appears in the document.
+
 ## Authors
 
 - Jacob Lindahl [@sudo_build](https://twitter.com/sudo_build)
