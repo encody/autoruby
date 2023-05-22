@@ -6,7 +6,7 @@ edition = "2021"
 license = "GPL-3.0-only"
 name = "autoruby"
 repository = "https://github.com/encody/autoruby"
-version = "0.2.0"
+version = "0.3.0"
 
 [features]
 default = ["frequency-full", "integrated"]
