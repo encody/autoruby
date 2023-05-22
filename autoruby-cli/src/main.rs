@@ -83,10 +83,13 @@ async fn main() {
         Command::Annotate(a) => {
             let input_text = input(a.input_path);
 
-            let processor =
-                autoruby::annotate::Annotator::new_with_integrated_dictionary(!a.include_common);
+            let annotator = autoruby::annotate::Annotator::new_with_integrated_dictionary();
 
-            let generated = processor.annotate_with_first(a.mode.formatter(), &input_text);
+            let generated = if a.include_common {
+                autoruby::annotate::Annotator::annotate_all_with_first
+            } else {
+                autoruby::annotate::Annotator::annotate_uncommon_with_first
+            }(&annotator, a.mode.formatter(), &input_text);
 
             output(a.output_path)
                 .write_all(generated.as_bytes())

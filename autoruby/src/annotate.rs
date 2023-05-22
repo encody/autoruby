@@ -11,7 +11,6 @@ use crate::{
 pub struct Annotator<'a> {
     dictionary: &'a Dictionary,
     tokenizer: Tokenizer,
-    avoid_common: bool,
 }
 
 fn apply(text_entry: &TextEntry, text: &str, format: Format) -> String {
@@ -138,17 +137,17 @@ impl<'a> InternalToken<'a> {
 #[cfg(feature = "integrated")]
 impl<'a> Default for Annotator<'a> {
     fn default() -> Self {
-        Annotator::new(&crate::DICTIONARY, true)
+        Annotator::new(&crate::DICTIONARY)
     }
 }
 
 impl<'a> Annotator<'a> {
     #[cfg(feature = "integrated")]
-    pub fn new_with_integrated_dictionary(avoid_common: bool) -> Self {
-        Annotator::new(&crate::DICTIONARY, avoid_common)
+    pub fn new_with_integrated_dictionary() -> Self {
+        Annotator::new(&crate::DICTIONARY)
     }
 
-    pub fn new(dictionary: &'a Dictionary, avoid_common: bool) -> Self {
+    pub fn new(dictionary: &'a Dictionary) -> Self {
         let dictionary_kind = lindera_dictionary::DictionaryKind::UniDic;
 
         let tokenizer = Tokenizer::from_config(TokenizerConfig {
@@ -164,7 +163,6 @@ impl<'a> Annotator<'a> {
         Self {
             dictionary,
             tokenizer,
-            avoid_common,
         }
     }
 
@@ -175,10 +173,6 @@ impl<'a> Annotator<'a> {
         let reading_hint = token.reading_hint.as_ref();
 
         let mut entries = self.dictionary.lookup_word(&token.lookup_text);
-
-        if self.avoid_common {
-            entries.retain(|e| !e.text_is_common);
-        }
 
         entries.sort_by(|a, b| {
             match (
@@ -296,13 +290,24 @@ impl<'a> Annotator<'a> {
         }
     }
 
-    pub fn annotate_with_first(&self, f: Format, input: &str) -> String {
-        let t = self.annotate(input);
-        t.fragments
+    pub fn annotate_uncommon_with_first(&self, f: Format, input: &str) -> String {
+        self.annotate(input)
+            .fragments
+            .into_iter()
+            .map(|frag| match frag.annotations.first() {
+                Some(a) if !a.reading_is_common => apply(a, &frag.text, f).into(),
+                _ => frag.text,
+            })
+            .collect()
+    }
+
+    pub fn annotate_all_with_first(&self, f: Format, input: &str) -> String {
+        self.annotate(input)
+            .fragments
             .into_iter()
             .map(|frag| match frag.annotations.first() {
                 Some(a) => apply(a, &frag.text, f).into(),
-                None => frag.text,
+                _ => frag.text,
             })
             .collect()
     }
