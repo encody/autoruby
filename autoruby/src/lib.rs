@@ -50,10 +50,14 @@ mod tests {
         let annotator = annotate::Annotator::new_with_integrated_dictionary();
 
         for test in tests {
-            let result = annotator.annotate_uncommon_with_first(format::markdown, test.input);
+            let result = annotator
+                .annotate(test.input)
+                .apply_uncommon_with_first(format::markdown);
             assert_eq!(result, test.expected_uncommon);
 
-            let result = annotator.annotate_all_with_first(format::markdown, test.input);
+            let result = annotator
+                .annotate(test.input)
+                .apply_all_with_first(format::markdown);
             assert_eq!(result, test.expected_all);
         }
     }

@@ -85,11 +85,13 @@ async fn main() {
 
             let annotator = autoruby::annotate::Annotator::new_with_integrated_dictionary();
 
+            let annotated = annotator.annotate(&input_text);
+
             let generated = if a.include_common {
-                autoruby::annotate::Annotator::annotate_all_with_first
+                annotated.apply_all_with_first(a.mode.formatter())
             } else {
-                autoruby::annotate::Annotator::annotate_uncommon_with_first
-            }(&annotator, a.mode.formatter(), &input_text);
+                annotated.apply_uncommon_with_first(a.mode.formatter())
+            };
 
             output(a.output_path)
                 .write_all(generated.as_bytes())

@@ -8,11 +8,6 @@ use crate::{
     format::Format,
 };
 
-pub struct Annotator<'a> {
-    dictionary: &'a Dictionary,
-    tokenizer: Tokenizer,
-}
-
 fn apply(text_entry: &TextEntry, text: &str, format: Format) -> String {
     // assuming the rubies are already sorted
     let text = text.chars().collect::<Vec<_>>();
@@ -62,6 +57,28 @@ pub struct AnnotatedText<'a> {
     pub fragments: Vec<AnnotatedTextFragment<'a>>,
 }
 
+impl<'a> AnnotatedText<'a> {
+    pub fn apply_uncommon_with_first(&self, f: Format) -> String {
+        self.fragments
+            .iter()
+            .map(|frag| match frag.annotations.first() {
+                Some(a) if !a.reading_is_common => apply(a, &frag.text, f).into(),
+                _ => frag.text.clone(),
+            })
+            .collect()
+    }
+
+    pub fn apply_all_with_first(&self, f: Format) -> String {
+        self.fragments
+            .iter()
+            .map(|frag| match frag.annotations.first() {
+                Some(a) => apply(a, &frag.text, f).into(),
+                _ => frag.text.clone(),
+            })
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug)]
 struct InternalToken<'a> {
     pub original_text: Cow<'a, str>,
@@ -102,12 +119,17 @@ impl<'a> From<String> for InternalToken<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct Details<'a>(&'a [String]);
 
-impl<'a, T: AsRef<[String]>> From<&'a T> for Details<'a> {
-    fn from(value: &'a T) -> Self {
-        Self(value.as_ref())
+impl<'a> TryFrom<&'a [String]> for Details<'a> {
+    type Error = ();
+
+    fn try_from(value: &'a [String]) -> Result<Self, Self::Error> {
+        if value.len() < 11 {
+            return Err(());
+        }
+        Ok(Self(value))
     }
 }
 
@@ -122,16 +144,27 @@ impl<'a> Details<'a> {
 }
 
 impl<'a> InternalToken<'a> {
-    fn from_token(token_text: &'a str, details: Details<'_>) -> Self {
-        if token_text == "元" {
-            dbg!(&details);
-        }
+    fn from_token(token_text: &'a str, details: Option<Details<'_>>) -> Self {
         Self {
             original_text: token_text.into(),
-            lookup_text: details.dictionary_form().to_string(),
-            reading_hint: Some(details.reading_katakana().to_hiragana()),
+            lookup_text: details
+                .map(|d| d.dictionary_form().to_string())
+                .unwrap_or_default(),
+            reading_hint: details.map(|d| d.reading_katakana().to_hiragana()),
         }
     }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AnnotatorOptions {
+    pub include_common: bool,
+    pub use_katakana: bool,
+    pub only_annotate_first_occurrence: bool,
+}
+
+pub struct Annotator<'a> {
+    dictionary: &'a Dictionary,
+    tokenizer: Tokenizer,
 }
 
 #[cfg(feature = "integrated")]
@@ -258,7 +291,12 @@ impl<'a> Annotator<'a> {
                         .get_details()
                         .map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>());
                     let internal_token = details
-                        .map(|details| InternalToken::from_token(t.text, (&details).into()))
+                        .map(|details| {
+                            InternalToken::from_token(
+                                t.text,
+                                Details::try_from(details.as_ref()).ok(),
+                            )
+                        })
                         .unwrap_or_else(|| t.text.into());
                     internal_tokens.push(internal_token);
                     token_buffer_start += 1;
@@ -288,27 +326,5 @@ impl<'a> Annotator<'a> {
                 .map(|internal_token| self.annotate_internal_token(internal_token))
                 .collect(),
         }
-    }
-
-    pub fn annotate_uncommon_with_first(&self, f: Format, input: &str) -> String {
-        self.annotate(input)
-            .fragments
-            .into_iter()
-            .map(|frag| match frag.annotations.first() {
-                Some(a) if !a.reading_is_common => apply(a, &frag.text, f).into(),
-                _ => frag.text,
-            })
-            .collect()
-    }
-
-    pub fn annotate_all_with_first(&self, f: Format, input: &str) -> String {
-        self.annotate(input)
-            .fragments
-            .into_iter()
-            .map(|frag| match frag.annotations.first() {
-                Some(a) => apply(a, &frag.text, f).into(),
-                _ => frag.text,
-            })
-            .collect()
     }
 }
