@@ -27,6 +27,9 @@ async fn main() {
         if let Ok(file) = std::fs::File::open(&furigana_path) {
             file
         } else {
+            #[cfg(feature = "dummy-integrated")]
+            let dictionary_file = "有る|ある|0:あ\n";
+            #[cfg(not(feature = "dummy-integrated"))]
             let dictionary_file = reqwest::get(dictionary::DOWNLOAD_URL)
                 .await
                 .unwrap()
