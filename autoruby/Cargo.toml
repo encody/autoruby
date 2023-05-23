@@ -6,11 +6,11 @@ edition = "2021"
 license = "GPL-3.0-only"
 name = "autoruby"
 repository = "https://github.com/encody/autoruby"
-version = "0.3.1"
+version = "0.3.2"
 
 [features]
 default = ["frequency-full", "integrated"]
-dummy-integrated = ["integrated"]
+dummy-integrated = ["integrated", "jmdict/db-empty"]
 frequency-full = ["jmdict/full"]
 integrated = ["dep:bincode", "dep:reqwest", "dep:once_cell", "serde"]
 serde = ["dep:serde"]

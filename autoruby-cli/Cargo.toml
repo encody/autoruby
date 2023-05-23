@@ -6,10 +6,10 @@ edition = "2021"
 license = "GPL-3.0-only"
 name = "autoruby-cli"
 repository = "https://github.com/encody/autoruby"
-version = "0.3.1"
+version = "0.3.2"
 
 [dependencies]
-autoruby = {path = "../autoruby", version = "0.3.1"}
+autoruby = {path = "../autoruby", version = "0.3.2"}
 clap = {version = "4", features = ["derive"]}
 envy = "0.4"
 serde = "1"
