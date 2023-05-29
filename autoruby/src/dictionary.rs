@@ -13,6 +13,11 @@ pub struct FrequencyEntry<'a> {
 }
 
 pub fn frequency_entries() -> impl Iterator<Item = FrequencyEntry<'static>> {
+    #[cfg(feature = "dummy")]
+    {
+        [].into_iter()
+    }
+    #[cfg(not(feature = "dummy"))]
     jmdict::entries().flat_map(|e| {
         e.kanji_elements().flat_map(move |k| {
             e.reading_elements().map(move |r| FrequencyEntry {

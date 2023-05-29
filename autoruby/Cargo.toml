@@ -9,9 +9,8 @@ repository = "https://github.com/encody/autoruby"
 version = "0.3.2"
 
 [features]
-default = ["frequency-full", "integrated"]
-dummy-integrated = ["integrated", "jmdict/db-empty"]
-frequency-full = ["jmdict/full"]
+default = ["integrated"]
+dummy = ["integrated", "jmdict/db-empty"]
 integrated = ["dep:bincode", "dep:reqwest", "dep:once_cell", "serde"]
 serde = ["dep:serde"]
 
