@@ -12,6 +12,7 @@ pub mod annotate;
 pub mod dictionary;
 pub mod format;
 mod parse;
+pub mod selector;
 
 #[cfg(all(test, feature = "integrated"))]
 mod tests {
@@ -52,12 +53,12 @@ mod tests {
         for test in tests {
             let result = annotator
                 .annotate(test.input)
-                .apply_uncommon_with_first(format::markdown);
+                .apply_uncommon_with_first(&format::Markdown);
             assert_eq!(result, test.expected_uncommon);
 
             let result = annotator
                 .annotate(test.input)
-                .apply_all_with_first(format::markdown);
+                .apply_all_with_first(&format::Markdown);
             assert_eq!(result, test.expected_all);
         }
     }

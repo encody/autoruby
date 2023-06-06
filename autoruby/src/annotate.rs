@@ -6,9 +6,10 @@ use wana_kana::ConvertJapanese;
 use crate::{
     dictionary::{Dictionary, TextEntry},
     format::Format,
+    selector::AnnotationSelector,
 };
 
-fn apply(text_entry: &TextEntry, text: &str, format: Format) -> String {
+fn apply(text_entry: &TextEntry, text: &str, format: &(impl Format + ?Sized)) -> String {
     // assuming the rubies are already sorted
     let text = text.chars().collect::<Vec<_>>();
     let (last_index, mut s) = text_entry.reading_spans.iter().fold(
@@ -25,7 +26,7 @@ fn apply(text_entry: &TextEntry, text: &str, format: Format) -> String {
                 let base = &text[start_index..=end_index].iter().collect::<String>();
                 let text = &span.text;
 
-                s.push_str(&format(base, text));
+                s.push_str(&format.format(base, text));
                 (end_index + 1, s)
             } else {
                 (valid_next_index, s)
@@ -58,7 +59,16 @@ pub struct AnnotatedText<'a> {
 }
 
 impl<'a> AnnotatedText<'a> {
-    pub fn apply_uncommon_with_first(&self, f: Format) -> String {
+    pub fn render(&self, selector: &impl AnnotationSelector, format: &impl Format) -> String {
+        self.fragments.iter().map(|frag| {
+            let annotation = selector.select(&frag.annotations);
+            match annotation {
+                Some(annotation) => apply(annotation, &frag.text, format).into(),
+                None => frag.text.clone(),
+            }
+        }).collect()
+    }
+    pub fn apply_uncommon_with_first(&self, f: &(impl Format + ?Sized)) -> String {
         self.fragments
             .iter()
             .map(|frag| match frag.annotations.first() {
@@ -68,7 +78,7 @@ impl<'a> AnnotatedText<'a> {
             .collect()
     }
 
-    pub fn apply_all_with_first(&self, f: Format) -> String {
+    pub fn apply_all_with_first(&self, f: &(impl Format + ?Sized)) -> String {
         self.fragments
             .iter()
             .map(|frag| match frag.annotations.first() {

@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use autoruby::format::{self, Format};
+use autoruby::format::{self, with_katakana, Format};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
@@ -34,8 +34,12 @@ struct AnnotateArgs {
     include_common: bool,
 
     /// Output mode
-    #[arg(value_enum, long, short)]
-    mode: OutputMode,
+    #[arg(value_enum, long, short = 'f')]
+    format: OutputFormat,
+
+    /// Generated furigana will use katakana instead of hiragana
+    #[arg(long, short = 'k')]
+    katakana: bool,
 }
 
 fn input(input_path: Option<impl AsRef<Path>>) -> String {
@@ -59,18 +63,18 @@ fn output(output_path: Option<impl AsRef<Path>>) -> Box<dyn Write> {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
-enum OutputMode {
+enum OutputFormat {
     Markdown,
     Html,
     Latex,
 }
 
-impl OutputMode {
-    pub fn formatter(&self) -> Format {
+impl OutputFormat {
+    pub fn formatter(&self) -> impl Format {
         match self {
-            OutputMode::Markdown => format::markdown,
-            OutputMode::Html => format::html,
-            OutputMode::Latex => format::latex,
+            OutputFormat::Markdown => format::markdown,
+            OutputFormat::Html => format::html,
+            OutputFormat::Latex => format::latex,
         }
     }
 }
@@ -87,10 +91,19 @@ async fn main() {
 
             let annotated = annotator.annotate(&input_text);
 
-            let generated = if a.include_common {
-                annotated.apply_all_with_first(a.mode.formatter())
+            let hiragana_formatter = a.format.formatter();
+            let katakana_formatter = with_katakana(a.format.formatter());
+
+            let formatter: &dyn Format = if a.katakana {
+                &katakana_formatter
             } else {
-                annotated.apply_uncommon_with_first(a.mode.formatter())
+                &hiragana_formatter
+            };
+
+            let generated = if a.include_common {
+                annotated.apply_all_with_first(formatter)
+            } else {
+                annotated.apply_uncommon_with_first(formatter)
             };
 
             output(a.output_path)
