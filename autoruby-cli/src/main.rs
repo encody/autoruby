@@ -71,8 +71,10 @@ fn output(output_path: Option<impl AsRef<Path>>) -> Box<dyn Write> {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 enum OutputFormat {
+    #[value(alias = "md")]
     Markdown,
     Html,
+    #[value(alias = "tex")]
     Latex,
 }
 
