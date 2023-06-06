@@ -48,7 +48,7 @@ async fn main() {
         }
     };
 
-    let dict = dictionary::build(dictionary_reader);
+    let dict = dictionary::build(dictionary_reader).unwrap();
     std::fs::write(bin_path, bincode::serialize(&dict).unwrap()).unwrap();
 }
 

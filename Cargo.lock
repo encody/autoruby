@@ -117,6 +117,7 @@ dependencies = [
  "pretty_assertions",
  "reqwest",
  "serde",
+ "thiserror",
  "tokio",
  "wana_kana",
 ]

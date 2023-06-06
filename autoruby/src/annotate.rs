@@ -1,3 +1,5 @@
+//! Work with and generate annotations.
+
 use std::{borrow::Cow, cmp::Ordering, vec};
 
 use lindera_tokenizer::tokenizer::{Tokenizer, TokenizerConfig};
@@ -38,13 +40,18 @@ fn apply(text_entry: &TextEntry, text: &str, format: &(impl Format + ?Sized)) ->
     s
 }
 
+/// A text fragment with annotations. Usually a word or well-known phrase.
 #[derive(Clone, Debug)]
 pub struct AnnotatedTextFragment<'a> {
+    /// The original text of the fragment.
     pub text: Cow<'a, str>,
+    /// The annotations associated with the fragment.
     pub annotations: Vec<&'a TextEntry>,
 }
 
 impl<'a> AnnotatedTextFragment<'a> {
+    /// Create a new fragment of a word with no annotations.
+    #[must_use]
     pub fn plain(text: Cow<'a, str>) -> Self {
         Self {
             text,
@@ -53,12 +60,15 @@ impl<'a> AnnotatedTextFragment<'a> {
     }
 }
 
+/// A complete text with annotations.
 #[derive(Clone, Debug, Default)]
 pub struct AnnotatedText<'a> {
+    /// The fragments of the text with annotations.
     pub fragments: Vec<AnnotatedTextFragment<'a>>,
 }
 
 impl<'a> AnnotatedText<'a> {
+    /// Render the annotated text into a string.
     pub fn render(
         &self,
         selector: &(impl Select + ?Sized),
@@ -153,31 +163,22 @@ impl<'a> InternalToken<'a> {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct AnnotatorOptions {
-    pub include_common: bool,
-    pub use_katakana: bool,
-    pub only_annotate_first_occurrence: bool,
-}
-
+/// Annotates text with readings, given a dictionary.
 pub struct Annotator<'a> {
     dictionary: &'a Dictionary,
     tokenizer: Tokenizer,
 }
 
-#[cfg(feature = "integrated")]
-impl<'a> Default for Annotator<'a> {
-    fn default() -> Self {
-        Annotator::new(&crate::DICTIONARY)
-    }
-}
-
 impl<'a> Annotator<'a> {
+    /// Create a new annotator with the integrated dictionary.
     #[cfg(feature = "integrated")]
+    #[must_use]
     pub fn new_with_integrated_dictionary() -> Self {
         Annotator::new(&crate::DICTIONARY)
     }
 
+    /// Create a new annotator with a dictionary.
+    #[must_use]
     pub fn new(dictionary: &'a Dictionary) -> Self {
         let dictionary_kind = lindera_dictionary::DictionaryKind::UniDic;
 
@@ -203,9 +204,13 @@ impl<'a> Annotator<'a> {
     ) -> AnnotatedTextFragment<'b> {
         let reading_hint = token.reading_hint.as_ref();
 
-        let mut entries = self.dictionary.lookup_word(&token.lookup_text);
+        let mut entries = self
+            .dictionary
+            .lookup_word(&token.lookup_text)
+            .collect::<Vec<_>>();
 
         entries.sort_by(|a, b| {
+            #[allow(clippy::match_same_arms)] // order-dependent
             match (
                 Some(&a.reading) == reading_hint,
                 Some(&b.reading) == reading_hint,
@@ -226,12 +231,15 @@ impl<'a> Annotator<'a> {
         }
     }
 
+    /// Annotate a text with readings.
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn annotate<'b>(&'b self, text: &'b str) -> AnnotatedText<'b> {
         if text.trim().is_empty() {
-            return Default::default();
+            return AnnotatedText::default();
         }
 
-        let mut tokens = self.tokenizer.tokenize(text).unwrap();
+        let mut tokens = self.tokenizer.tokenize(text).unwrap(); // this function is actually infallible. Not sure why it returns a Result
 
         // tokens must have at least one element
 
@@ -239,7 +247,10 @@ impl<'a> Annotator<'a> {
         let mut token_buffer_start: usize = 0;
         // Exclusive upper bound
         let mut token_buffer_end: usize = 1;
-        let mut buffer_possibilities = self.dictionary.lookup_prefixed(tokens[0].text);
+        let mut buffer_possibilities = self
+            .dictionary
+            .lookup_prefixed(tokens[0].text)
+            .collect::<Vec<_>>();
 
         while token_buffer_start < tokens.len() {
             // remember: exclusive upper bound
@@ -287,15 +298,16 @@ impl<'a> Annotator<'a> {
                     let t = &mut tokens[token_buffer_start];
                     let details = t
                         .get_details()
-                        .map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>());
-                    let internal_token = details
-                        .map(|details| {
+                        .map(|v| v.into_iter().map(ToString::to_string).collect::<Vec<_>>());
+                    let internal_token = details.map_or_else(
+                        || t.text.into(),
+                        |details| {
                             InternalToken::from_token(
                                 t.text,
                                 Details::try_from(details.as_ref()).ok(),
                             )
-                        })
-                        .unwrap_or_else(|| t.text.into());
+                        },
+                    );
                     internal_tokens.push(internal_token);
                     token_buffer_start += 1;
                 } else {
@@ -313,7 +325,7 @@ impl<'a> Annotator<'a> {
                 token_buffer_end = token_buffer_start + 1;
 
                 if let Some(t) = tokens.get(token_buffer_start) {
-                    buffer_possibilities = self.dictionary.lookup_prefixed(t.text);
+                    buffer_possibilities = self.dictionary.lookup_prefixed(t.text).collect();
                 }
             }
         }

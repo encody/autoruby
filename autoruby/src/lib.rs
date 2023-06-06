@@ -1,3 +1,7 @@
+#![doc = include_str!("../README.md")]
+#![warn(clippy::pedantic)]
+#![warn(missing_docs)]
+
 use dictionary::Dictionary;
 
 #[cfg(feature = "integrated")]

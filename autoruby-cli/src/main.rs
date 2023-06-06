@@ -1,3 +1,7 @@
+#![doc = include_str!("../README.md")]
+#![warn(clippy::pedantic)]
+#![warn(missing_docs)]
+
 use std::{
     fs,
     io::{Read, Write},
@@ -10,9 +14,9 @@ use autoruby::{
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+/// Command-line utility for adding ruby text to documents
 #[derive(Parser, Debug)]
 #[command(author, version)]
-/// Command-line utility for adding ruby text to documents
 struct Arguments {
     #[command(subcommand)]
     command: Command,
@@ -46,23 +50,23 @@ struct AnnotateArgs {
 }
 
 fn input(input_path: Option<impl AsRef<Path>>) -> String {
-    input_path
-        .map(|p| fs::read_to_string(p).expect("Could not read input file."))
-        .unwrap_or_else(|| {
+    input_path.map_or_else(
+        || {
             let mut buf = String::new();
             std::io::stdin()
                 .read_to_string(&mut buf)
                 .expect("Must specify input file or STDIN.");
             buf
-        })
+        },
+        |p| fs::read_to_string(p).expect("Could not read input file."),
+    )
 }
 
 fn output(output_path: Option<impl AsRef<Path>>) -> Box<dyn Write> {
-    output_path
-        .map(|o| {
-            Box::new(fs::File::create(o).expect("Could not create output file.")) as Box<dyn Write>
-        })
-        .unwrap_or_else(|| Box::new(std::io::stdout()) as Box<dyn Write>)
+    output_path.map_or_else(
+        || Box::new(std::io::stdout()) as Box<dyn Write>,
+        |o| Box::new(fs::File::create(o).expect("Could not create output file.")) as Box<dyn Write>,
+    )
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
@@ -73,7 +77,7 @@ enum OutputFormat {
 }
 
 impl OutputFormat {
-    pub fn formatter(&self) -> impl Format {
+    pub fn formatter(self) -> impl Format {
         match self {
             OutputFormat::Markdown => format::markdown,
             OutputFormat::Html => format::html,

@@ -2,6 +2,20 @@
 
 Automatically generate furigana/ruby for various document formats.
 
+## Example
+
+```rust
+use autoruby::{annotate, format, select};
+
+let input = "神は「光あれ」と言われた。すると光があった。";
+let expected = "[神]{かみ}は「[光]{ひかり}あれ」と[言]{い}われた。すると[光]{ひかり}があった。";
+let annotator = annotate::Annotator::new_with_integrated_dictionary();
+let annotated = annotator.annotate(input);
+let result = annotated.render(&select::heuristic::all, &format::markdown);
+
+assert_eq!(result, expected);
+```
+
 ## Setup
 
 The tool works using an embedded database of the JMdict furigana as provided by [Doublevil](https://github.com/Doublevil/JmdictFurigana).
