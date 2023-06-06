@@ -60,13 +60,16 @@ pub struct AnnotatedText<'a> {
 
 impl<'a> AnnotatedText<'a> {
     pub fn render(&self, selector: &impl AnnotationSelector, format: &impl Format) -> String {
-        self.fragments.iter().map(|frag| {
-            let annotation = selector.select(&frag.annotations);
-            match annotation {
-                Some(annotation) => apply(annotation, &frag.text, format).into(),
-                None => frag.text.clone(),
-            }
-        }).collect()
+        self.fragments
+            .iter()
+            .map(|frag| {
+                let annotation = selector.select(&frag.annotations);
+                match annotation {
+                    Some(annotation) => apply(annotation, &frag.text, format).into(),
+                    None => frag.text.clone(),
+                }
+            })
+            .collect()
     }
     pub fn apply_uncommon_with_first(&self, f: &(impl Format + ?Sized)) -> String {
         self.fragments

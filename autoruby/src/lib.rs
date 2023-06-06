@@ -53,12 +53,12 @@ mod tests {
         for test in tests {
             let result = annotator
                 .annotate(test.input)
-                .apply_uncommon_with_first(&format::Markdown);
+                .apply_uncommon_with_first(&format::markdown);
             assert_eq!(result, test.expected_uncommon);
 
             let result = annotator
                 .annotate(test.input)
-                .apply_all_with_first(&format::Markdown);
+                .apply_all_with_first(&format::markdown);
             assert_eq!(result, test.expected_all);
         }
     }
