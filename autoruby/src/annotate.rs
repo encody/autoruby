@@ -6,7 +6,7 @@ use wana_kana::ConvertJapanese;
 use crate::{
     dictionary::{Dictionary, TextEntry},
     format::Format,
-    selector::AnnotationSelector,
+    select::Select,
 };
 
 fn apply(text_entry: &TextEntry, text: &str, format: &(impl Format + ?Sized)) -> String {
@@ -59,7 +59,11 @@ pub struct AnnotatedText<'a> {
 }
 
 impl<'a> AnnotatedText<'a> {
-    pub fn render(&self, selector: &impl AnnotationSelector, format: &impl Format) -> String {
+    pub fn render(
+        &self,
+        selector: &(impl Select + ?Sized),
+        format: &(impl Format + ?Sized),
+    ) -> String {
         self.fragments
             .iter()
             .map(|frag| {
@@ -68,25 +72,6 @@ impl<'a> AnnotatedText<'a> {
                     Some(annotation) => apply(annotation, &frag.text, format).into(),
                     None => frag.text.clone(),
                 }
-            })
-            .collect()
-    }
-    pub fn apply_uncommon_with_first(&self, f: &(impl Format + ?Sized)) -> String {
-        self.fragments
-            .iter()
-            .map(|frag| match frag.annotations.first() {
-                Some(a) if !a.reading_is_common => apply(a, &frag.text, f).into(),
-                _ => frag.text.clone(),
-            })
-            .collect()
-    }
-
-    pub fn apply_all_with_first(&self, f: &(impl Format + ?Sized)) -> String {
-        self.fragments
-            .iter()
-            .map(|frag| match frag.annotations.first() {
-                Some(a) => apply(a, &frag.text, f).into(),
-                _ => frag.text.clone(),
             })
             .collect()
     }

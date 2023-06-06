@@ -25,6 +25,6 @@ pub fn latex(base: &str, text: &str) -> String {
     format!("\\ruby{{{base}}}{{{text}}}")
 }
 
-pub fn with_katakana(f: impl Format) -> impl Format {
+pub fn use_katakana(f: impl Format) -> impl Format {
     move |base: &str, text: &str| f.format(base, &text.to_katakana())
 }

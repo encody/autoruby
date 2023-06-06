@@ -4,7 +4,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use autoruby::format::{self, with_katakana, Format};
+use autoruby::{
+    format::{self, use_katakana, Format},
+    select::{self, Select},
+};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
@@ -92,7 +95,7 @@ async fn main() {
             let annotated = annotator.annotate(&input_text);
 
             let hiragana_formatter = a.format.formatter();
-            let katakana_formatter = with_katakana(a.format.formatter());
+            let katakana_formatter = use_katakana(a.format.formatter());
 
             let formatter: &dyn Format = if a.katakana {
                 &katakana_formatter
@@ -100,11 +103,13 @@ async fn main() {
                 &hiragana_formatter
             };
 
-            let generated = if a.include_common {
-                annotated.apply_all_with_first(formatter)
+            let selector: &dyn Select = if a.include_common {
+                &select::heuristic::all
             } else {
-                annotated.apply_uncommon_with_first(formatter)
+                &select::heuristic::uncommon_only
             };
+
+            let generated = annotated.render(selector, formatter);
 
             output(a.output_path)
                 .write_all(generated.as_bytes())
