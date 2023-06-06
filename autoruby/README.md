@@ -16,7 +16,6 @@ If you are making modifications to the code and rebuilding it often, you probabl
 
 ## Future work
 
-- Option to use katakana instead of hiragana for furigana.
 - Option to only display the furigana for a word the first time it appears in the document.
 
 ## Authors

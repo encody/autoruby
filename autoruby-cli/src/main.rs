@@ -33,7 +33,7 @@ struct AnnotateArgs {
     #[arg(short = 'c', long)]
     include_common: bool,
 
-    /// Output mode
+    /// Output format
     #[arg(value_enum, long, short = 'f')]
     format: OutputFormat,
 
