@@ -15,6 +15,17 @@ $ cat ./output.md
 [神]{かみ}は「[光]{ひかり}あれ」と[言]{い}われた。すると[光]{ひかり}があった。
 ```
 
+### Input and output paths specified, Markdown (include common, only first occurrence)
+
+```text
+$ cat ./input.txt
+神は「光あれ」と言われた。すると光があった。
+
+$ autoruby annotate ./input.txt ./output.md -f md -c1
+$ cat ./output.md
+[神]{かみ}は「[光]{ひかり}あれ」と[言]{い}われた。すると光があった。
+```
+
 ### STDIN&rarr;STDOUT, HTML
 
 ```text
