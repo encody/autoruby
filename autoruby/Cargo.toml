@@ -2,6 +2,7 @@
 authors.workspace = true
 categories = ["text-processing", "localization", "accessibility"]
 description = "Easily generate furigana for various document formats"
+documentation = "https://docs.rs/autoruby"
 edition.workspace = true
 license.workspace = true
 name = "autoruby"

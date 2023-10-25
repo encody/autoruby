@@ -9,4 +9,4 @@ authors = ["Jacob Lindahl <aviator9402@gmail.com>"]
 edition = "2021"
 license = "GPL-3.0-only"
 repository = "https://github.com/encody/autoruby"
-version = "0.5.0"
+version = "0.5.1"
