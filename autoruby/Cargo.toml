@@ -1,12 +1,12 @@
 [package]
-authors = ["Jacob Lindahl <aviator9402@gmail.com>"]
+authors.workspace = true
 categories = ["text-processing", "localization", "accessibility"]
 description = "Easily generate furigana for various document formats"
-edition = "2021"
-license = "GPL-3.0-only"
+edition.workspace = true
+license.workspace = true
 name = "autoruby"
-repository = "https://github.com/encody/autoruby"
-version = "0.4.0"
+repository.workspace = true
+version.workspace = true
 
 [features]
 default = ["integrated"]
@@ -15,14 +15,14 @@ integrated = ["dep:bincode", "dep:reqwest", "dep:once_cell", "serde"]
 serde = ["dep:serde"]
 
 [dependencies]
-bincode = {version = "1", optional = true}
+bincode = { version = "1", optional = true }
 jmdict = "2"
 lindera-core = "0.24"
 lindera-dictionary = "0.24"
-lindera-tokenizer = {version = "0.24", features = ["unidic"]}
+lindera-tokenizer = { version = "0.24", features = ["unidic"] }
 nom = "7"
-once_cell = {version = "1", optional = true}
-serde = {version = "1", optional = true}
+once_cell = { version = "1", optional = true }
+serde = { version = "1", optional = true }
 thiserror = "1"
 wana_kana = "3"
 
@@ -30,14 +30,14 @@ wana_kana = "3"
 pretty_assertions = "1.3"
 
 [build-dependencies]
-bincode = {version = "1", optional = true}
+bincode = { version = "1", optional = true }
 dotenvy = "0.15"
 jmdict = "2"
 nom = "7"
-reqwest = {version = "0.11", optional = true}
-serde = {version = "1", optional = true}
+reqwest = { version = "0.11", optional = true }
+serde = { version = "1", optional = true }
 thiserror = "1"
-tokio = {version = "1", features = ["full"]}
+tokio = { version = "1", features = ["full"] }
 
 [package.metadata.docs.rs]
 features = ["dummy"]
