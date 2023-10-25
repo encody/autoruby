@@ -9,7 +9,7 @@ use std::{
 };
 
 use autoruby::{
-    format::{self, use_katakana, Format},
+    format::{self, Format, WithKatakana},
     select::{self, Select},
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -44,9 +44,13 @@ struct AnnotateArgs {
     #[arg(value_enum, long, short = 'f')]
     format: OutputFormat,
 
-    /// Generated furigana will use katakana instead of hiragana
+    /// Generated furigana will use katakana instead of hiragana.
     #[arg(long, short = 'k')]
     katakana: bool,
+
+    /// Only annotate the first occurrence of a word.
+    #[arg(long, short = '1')]
+    only_first: bool,
 }
 
 fn input(input_path: Option<impl AsRef<Path>>) -> String {
@@ -79,11 +83,11 @@ enum OutputFormat {
 }
 
 impl OutputFormat {
-    pub fn formatter(self) -> impl Format {
+    pub fn formatter(self) -> Box<dyn Format> {
         match self {
-            OutputFormat::Markdown => format::markdown,
-            OutputFormat::Html => format::html,
-            OutputFormat::Latex => format::latex,
+            OutputFormat::Markdown => Box::new(format::Markdown),
+            OutputFormat::Html => Box::new(format::Html),
+            OutputFormat::Latex => Box::new(format::Latex),
         }
     }
 }
@@ -100,22 +104,28 @@ async fn main() {
 
             let annotated = annotator.annotate(&input_text);
 
-            let hiragana_formatter = a.format.formatter();
-            let katakana_formatter = use_katakana(a.format.formatter());
-
-            let formatter: &dyn Format = if a.katakana {
-                &katakana_formatter
-            } else {
-                &hiragana_formatter
+            let formatter = a.format.formatter();
+            let formatter = {
+                if a.katakana {
+                    Box::new(WithKatakana(&*formatter))
+                } else {
+                    formatter
+                }
             };
 
-            let selector: &dyn Select = if a.include_common {
-                &select::heuristic::all
-            } else {
-                &select::heuristic::uncommon_only
+            let selector = match (a.only_first, a.include_common) {
+                (true, true) => {
+                    Box::new(select::filter::FirstOccurrence::new(select::heuristic::All))
+                        as Box<dyn Select>
+                }
+                (true, false) => Box::new(select::filter::FirstOccurrence::new(
+                    select::heuristic::UncommonOnly,
+                )) as Box<dyn Select>,
+                (false, true) => Box::new(select::heuristic::All) as Box<dyn Select>,
+                (false, false) => Box::new(select::heuristic::UncommonOnly) as Box<dyn Select>,
             };
 
-            let generated = annotated.render(selector, formatter);
+            let generated = annotated.render(&*selector, &*formatter);
 
             output(a.output_path)
                 .write_all(generated.as_bytes())

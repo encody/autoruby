@@ -31,6 +31,27 @@ mod tests {
     }
 
     #[test]
+    fn first_only() {
+        let tests = [
+            ("簡単、簡単", "[簡]{かん}[単]{たん}、簡単"),
+            (
+                "お元気ですか。お元気ですか。",
+                "お[元]{げん}[気]{き}ですか。お元気ですか。",
+            ),
+        ];
+
+        let annotator = annotate::Annotator::new_with_integrated_dictionary();
+
+        for (text, expected) in tests {
+            let actual = annotator.annotate(text).render(
+                &select::filter::FirstOccurrence::new(select::heuristic::All),
+                &format::Markdown,
+            );
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
     fn conversions() {
         let tests = [
             Test {
@@ -56,10 +77,10 @@ mod tests {
 
         for test in tests {
             let annotated = annotator.annotate(test.input);
-            let result = annotated.render(&select::heuristic::uncommon_only, &format::markdown);
+            let result = annotated.render(&select::heuristic::UncommonOnly, &format::Markdown);
             assert_eq!(result, test.expected_uncommon_only);
 
-            let result = annotated.render(&select::heuristic::all, &format::markdown);
+            let result = annotated.render(&select::heuristic::All, &format::Markdown);
             assert_eq!(result, test.expected_all);
         }
     }
@@ -94,10 +115,10 @@ mod tests {
 
         for test in tests {
             let annotated = annotator.annotate(test.input);
-            let result = annotated.render(&select::heuristic::uncommon_only, &format::markdown);
+            let result = annotated.render(&select::heuristic::UncommonOnly, &format::Markdown);
             assert_eq!(result, test.expected_uncommon_only);
 
-            let result = annotated.render(&select::heuristic::all, &format::markdown);
+            let result = annotated.render(&select::heuristic::All, &format::Markdown);
             assert_eq!(result, test.expected_all);
         }
     }

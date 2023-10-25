@@ -11,7 +11,7 @@ use crate::{
     select::Select,
 };
 
-fn apply(text_entry: &TextEntry, text: &str, format: &(impl Format + ?Sized)) -> String {
+fn apply(text_entry: &TextEntry, text: &str, format: &dyn Format) -> String {
     // assuming the rubies are already sorted
     let text = text.chars().collect::<Vec<_>>();
     let (last_index, mut s) = text_entry.reading_spans.iter().fold(
@@ -69,15 +69,11 @@ pub struct AnnotatedText<'a> {
 
 impl<'a> AnnotatedText<'a> {
     /// Render the annotated text into a string.
-    pub fn render(
-        &self,
-        selector: &(impl Select + ?Sized),
-        format: &(impl Format + ?Sized),
-    ) -> String {
+    pub fn render(&'a self, selector: &dyn Select<'a>, format: &dyn Format) -> String {
         self.fragments
             .iter()
-            .map(|frag| {
-                let annotation = selector.select(&frag.annotations);
+            .map(move |frag| {
+                let annotation = selector.select(frag);
                 match annotation {
                     Some(annotation) => apply(annotation, &frag.text, format).into(),
                     None => frag.text.clone(),

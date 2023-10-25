@@ -8,34 +8,38 @@ pub trait Format {
     fn format(&self, base: &str, text: &str) -> String;
 }
 
-impl<T> Format for T
-where
-    T: Fn(&str, &str) -> String,
-{
+/// Markdown annotation formatting.
+pub struct Markdown;
+
+impl Format for Markdown {
     fn format(&self, base: &str, text: &str) -> String {
-        self(base, text)
+        format!("[{base}]{{{text}}}")
     }
 }
 
-/// Markdown annotation formatting.
-#[must_use]
-pub fn markdown(base: &str, text: &str) -> String {
-    format!("[{base}]{{{text}}}")
-}
-
 /// HTML annotation formatting.
-#[must_use]
-pub fn html(base: &str, text: &str) -> String {
-    format!("<ruby>{base}<rp>(</rp><rt>{text}</rt><rp>)</rp></ruby>")
+pub struct Html;
+
+impl Format for Html {
+    fn format(&self, base: &str, text: &str) -> String {
+        format!("<ruby>{base}<rp>(</rp><rt>{text}</rt><rp>)</rp></ruby>")
+    }
 }
 
 /// LaTeX annotation formatting.
-#[must_use]
-pub fn latex(base: &str, text: &str) -> String {
-    format!("\\ruby{{{base}}}{{{text}}}")
+pub struct Latex;
+
+impl Format for Latex {
+    fn format(&self, base: &str, text: &str) -> String {
+        format!("\\ruby{{{base}}}{{{text}}}")
+    }
 }
 
 /// Converts the annotation text to katakana.
-pub fn use_katakana(f: impl Format) -> impl Format {
-    move |base: &str, text: &str| f.format(base, &text.to_katakana())
+pub struct WithKatakana<'a>(pub &'a dyn Format);
+
+impl<'a> Format for WithKatakana<'a> {
+    fn format(&self, base: &str, text: &str) -> String {
+        self.0.format(base, &text.to_katakana())
+    }
 }
