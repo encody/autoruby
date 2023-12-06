@@ -18,9 +18,9 @@ serde = ["dep:serde"]
 [dependencies]
 bincode = { version = "1", optional = true }
 jmdict = "2"
-lindera-core = "0.24"
-lindera-dictionary = "0.24"
-lindera-tokenizer = { version = "0.24", features = ["unidic"] }
+lindera-core = "0.27"
+lindera-dictionary = "0.27"
+lindera-tokenizer = { version = "0.27", features = ["unidic"] }
 nom = "7"
 once_cell = { version = "1", optional = true }
 serde = { version = "1", optional = true }
